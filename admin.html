@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>揺れる電車｜演出設定</title>
+    <link rel="stylesheet" href="./admin.css" />
+  </head>
+  <body>
+    <header class="admin-header">
+      <div>
+        <p class="eyebrow">ROCKING TRAIN CONTROL</p>
+        <h1>ゲーム・演出パラメータ</h1>
+      </div>
+      <nav class="header-actions" aria-label="設定操作">
+        <button id="save-config" class="button button--primary" type="button">ブラウザに保存</button>
+        <button id="export-config" class="button" type="button">JSON Export</button>
+        <label class="button" for="import-config">JSON Import</label>
+        <input id="import-config" type="file" accept="application/json,.json" hidden />
+        <button id="reset-config" class="button button--danger" type="button">初期値に戻す</button>
+        <a class="button" href="./index.html">本編を開く</a>
+      </nav>
+    </header>
+
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+
+    <main class="admin-layout">
+      <div class="editor-column">
+        <section class="panel">
+          <div class="panel__heading">
+            <div>
+              <p class="eyebrow">SCENE &amp; TIMING</p>
+              <h2>画面遷移・タイマー</h2>
+            </div>
+            <button id="add-scene" class="button" type="button">＋ 選択シーンの直後に追加</button>
+          </div>
+          <p class="help">シーンカードをクリックすると選択状態になります。追加シーンは緑枠のカード直後に挿入されます。</p>
+          <div id="timing-editor" class="timing-editor"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel__heading">
+            <div>
+              <p class="eyebrow">STAGE &amp; SEQUENCE</p>
+              <h2>設問セット・ステージ構造</h2>
+            </div>
+            <button id="add-question-set" class="button" type="button">＋ 設問セット</button>
+          </div>
+          <div id="sequence-editor" class="sequence-editor"></div>
+        </section>
+      </div>
+
+      <aside class="preview-column">
+        <section class="panel panel--sticky">
+          <div class="panel__heading">
+            <div>
+              <p class="eyebrow">LIVE SIMULATOR</p>
+              <h2>プレビュー</h2>
+            </div>
+            <div class="preview-actions">
+              <button id="run-preview" class="button button--primary" type="button">テスト実行</button>
+              <button id="open-preview" class="button" type="button">別画面</button>
+            </div>
+          </div>
+          <p class="help">編集中の値を保存せずにテストできます。プレビュー内をクリックして、矢印キーを操作してください。</p>
+          <div id="timeline" class="timeline" aria-label="画面遷移タイムライン"></div>
+          <div class="preview-frame-wrap">
+            <iframe id="preview-frame" title="揺れる電車 プレビュー"></iframe>
+            <div id="preview-placeholder" class="preview-placeholder">「テスト実行」でシミュレーターを起動</div>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <script type="module" src="./admin.js"></script>
+  </body>
+</html>
