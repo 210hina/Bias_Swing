@@ -9,8 +9,8 @@
   <body>
     <header class="admin-header">
       <div>
-        <p class="eyebrow">ROCKING TRAIN CONTROL</p>
-        <h1>ゲーム・演出パラメータ</h1>
+        <p class="eyebrow">Screen Design Admin</p>
+        <h1>BIAS SWING</h1>
       </div>
       <nav class="header-actions" aria-label="設定操作">
         <button id="save-config" class="button button--primary" type="button">ブラウザに保存</button>
@@ -18,7 +18,6 @@
         <label class="button" for="import-config">JSON Import</label>
         <input id="import-config" type="file" accept="application/json,.json" hidden />
         <button id="reset-config" class="button button--danger" type="button">初期値に戻す</button>
-        <a class="button" href="./index.html">本編を開く</a>
       </nav>
     </header>
 
@@ -26,27 +25,17 @@
 
     <main class="admin-layout">
       <div class="editor-column">
-        <section class="panel">
+        <section class="panel config-workspace">
           <div class="panel__heading">
             <div>
-              <p class="eyebrow">SCENE &amp; TIMING</p>
-              <h2>画面遷移・タイマー</h2>
+              <p class="eyebrow">EXPERIENCE CONFIGURATION</p>
+              <h2>画面の編集</h2>
             </div>
-            <button id="add-scene" class="button" type="button">＋ 選択シーンの直後に追加</button>
+            <div id="question-scene-actions" class="header-actions"></div>
           </div>
-          <p class="help">シーンカードをクリックすると選択状態になります。追加シーンは緑枠のカード直後に挿入されます。</p>
-          <div id="timing-editor" class="timing-editor"></div>
-        </section>
-
-        <section class="panel">
-          <div class="panel__heading">
-            <div>
-              <p class="eyebrow">STAGE &amp; SEQUENCE</p>
-              <h2>設問セット・ステージ構造</h2>
-            </div>
-            <button id="add-question-set" class="button" type="button">＋ 設問セット</button>
-          </div>
-          <div id="sequence-editor" class="sequence-editor"></div>
+          <div id="config-tabs" class="config-tabs" role="tablist" aria-label="設定カテゴリ"></div>
+          <div id="tab-toolbar" class="tab-toolbar"></div>
+          <div id="tab-editor" class="tab-editor" role="tabpanel"></div>
         </section>
       </div>
 
@@ -58,7 +47,9 @@
               <h2>プレビュー</h2>
             </div>
             <div class="preview-actions">
-              <button id="run-preview" class="button button--primary" type="button">テスト実行</button>
+              <button id="run-preview" class="button button--primary" type="button">選択イベントからテスト</button>
+              <button id="run-preview-all" class="button" type="button">最初からテスト</button>
+              <button id="toggle-preview-audio" class="button" type="button" aria-pressed="false">音声：ON</button>
               <button id="open-preview" class="button" type="button">別画面</button>
             </div>
           </div>

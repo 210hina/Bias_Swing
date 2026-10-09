@@ -1,5 +1,5 @@
 import { CONTENT } from './content.js';
-import { DEFAULT_APP_CONFIG } from './config-store.js';
+import { buildRuntimeConfig, DEFAULT_APP_CONFIG } from './config-store.js';
 
 /**
  * Rocking Train prototype: question data, assets, mock statistics, and input.
@@ -9,12 +9,14 @@ import { DEFAULT_APP_CONFIG } from './config-store.js';
  */
 
 /** @typedef {'left' | 'right' | 'self'} Choice */
-/** @typedef {'text_only' | 'text_and_illustration' | 'social_statistics'} InfoLevel */
+/** @typedef {'text_only' | 'text_and_illustration' | 'text_and_stats'} InfoLevel */
 
 /**
  * @typedef {Object} PassengerInfo
  * @property {string} label
  * @property {string} [assetKey]
+ * @property {string} [imageName]
+ * @property {string} [imageSrc]
  */
 
 /**
@@ -23,8 +25,9 @@ import { DEFAULT_APP_CONFIG } from './config-store.js';
  * @property {InfoLevel} infoLevel
  * @property {PassengerInfo} left
  * @property {PassengerInfo} right
- * @property {'random'} [selectionMode]
+ * @property {'random' | 'text_and_illustration' | 'text_and_stats'} [presentationType]
  * @property {readonly StageVariant[]} [variants]
+ * @property {{ leftPercent: number, rightPercent: number }} [stats]
  */
 
 /**
@@ -83,7 +86,9 @@ import { DEFAULT_APP_CONFIG } from './config-store.js';
  */
 
 /** @type {readonly QuestionSet[]} */
-export const QUESTION_SETS = DEFAULT_APP_CONFIG.questionSets;
+const DEFAULT_RUNTIME_CONFIG = buildRuntimeConfig(DEFAULT_APP_CONFIG);
+
+export const QUESTION_SETS = DEFAULT_RUNTIME_CONFIG.questionSets;
 
 /**
  * Backward-compatible alias for code that only needs the first question set.
@@ -157,6 +162,229 @@ export const ASSET_MANIFEST = Object.freeze({
   }),
 });
 
+/** @typedef {'bgm' | 'se'} AudioKind */
+/** @typedef {{ kind: AudioKind, label: string, src: string, loop?: boolean }} AudioAssetInfo */
+/** @type {Readonly<Record<string, AudioAssetInfo>>} */
+export const AUDIO_MANIFEST = Object.freeze({
+  bgm_crowded: Object.freeze({
+    kind: 'bgm',
+    label: '混雑した車内の環境音',
+    src: './assets/audio/bgm_crowded.mp3',
+    loop: true,
+  }),
+  bgm_quiet: Object.freeze({
+    kind: 'bgm',
+    label: '空いた車内の環境音',
+    src: './assets/audio/bgm_quiet.mp3',
+    loop: true,
+  }),
+  se_input: Object.freeze({
+    kind: 'se',
+    label: '入力・決定音',
+    src: './assets/audio/se_input.wav',
+  }),
+  se_hesitation: Object.freeze({
+    kind: 'se',
+    label: '迷い演出音',
+    src: './assets/audio/se_hesitation.wav',
+  }),
+  se_reveal: Object.freeze({
+    kind: 'se',
+    label: '結果発表ジングル',
+    src: './assets/audio/se_reveal.mp3',
+  }),
+});
+
+function runtimeImageManifest(customAssets = {}) {
+  const custom = Object.fromEntries(Object.entries(customAssets?.images ?? {}).map(([key, asset]) => [
+    key,
+    {
+      type: asset.type ?? 'image',
+      src: asset.src,
+      fallback: { label: asset.fileName || key, color: '#666b70' },
+    },
+  ]));
+  return { ...ASSET_MANIFEST, ...custom };
+}
+
+function runtimeAudioManifest(customAssets = {}) {
+  return { ...AUDIO_MANIFEST, ...(customAssets?.audio ?? {}) };
+}
+
+/**
+ * HTML Audio based BGM / SE engine with autoplay unlock and BGM crossfades.
+ */
+export class AudioManager {
+  constructor({ windowRef = typeof window === 'undefined' ? null : window, manifest = AUDIO_MANIFEST } = {}) {
+    this.windowRef = windowRef;
+    this.manifest = manifest;
+    this.unlocked = false;
+    this.muted = false;
+    this.currentBgm = null;
+    this.currentBgmKey = '';
+    this.pendingSound = null;
+    this.activeAudio = new Set();
+    this.targetVolumes = new Map();
+    this.fadeTimers = new Map();
+    this.unlockTarget = null;
+    this.handleUnlock = this.unlock.bind(this);
+  }
+
+  createAudio(assetKey) {
+    const asset = this.manifest[assetKey];
+    const AudioConstructor = this.windowRef?.Audio ?? globalThis.Audio;
+    if (!asset?.src || typeof AudioConstructor !== 'function') return null;
+    const audio = new AudioConstructor(asset.src);
+    audio.preload = 'auto';
+    this.activeAudio.add(audio);
+    return audio;
+  }
+
+  start(target = this.windowRef) {
+    if (!target?.addEventListener) return;
+    this.unlockTarget = target;
+    target.addEventListener('pointerdown', this.handleUnlock, { capture: true });
+    target.addEventListener('keydown', this.handleUnlock, { capture: true });
+  }
+
+  unlock() {
+    if (this.unlocked) return;
+    this.unlocked = true;
+    this.unlockTarget?.removeEventListener?.('pointerdown', this.handleUnlock, { capture: true });
+    this.unlockTarget?.removeEventListener?.('keydown', this.handleUnlock, { capture: true });
+    if (this.pendingSound) this.enterScene(this.pendingSound);
+  }
+
+  safePlay(audio) {
+    if (!audio) return;
+    try {
+      const promise = audio.play();
+      promise?.catch?.((error) => console.warn('音声を再生できませんでした。', error));
+    } catch (error) {
+      console.warn('音声を再生できませんでした。', error);
+    }
+  }
+
+  setAudioVolume(audio, volume) {
+    if (!audio) return;
+    const normalized = Math.min(1, Math.max(0, volume));
+    this.targetVolumes.set(audio, normalized);
+    audio.volume = this.muted ? 0 : normalized;
+  }
+
+  fade(audio, from, to, durationMs, onComplete) {
+    if (!audio) return;
+    const existingTimer = this.fadeTimers.get(audio);
+    if (existingTimer) clearInterval(existingTimer);
+    this.fadeTimers.delete(audio);
+    const duration = Math.max(0, Number(durationMs) || 0);
+    if (!duration) {
+      this.setAudioVolume(audio, to);
+      onComplete?.();
+      return;
+    }
+    const startedAt = Date.now();
+    this.setAudioVolume(audio, from);
+    const timer = setInterval(() => {
+      const progress = Math.min(1, (Date.now() - startedAt) / duration);
+      this.setAudioVolume(audio, from + (to - from) * progress);
+      if (progress >= 1) {
+        clearInterval(timer);
+        this.fadeTimers.delete(audio);
+        onComplete?.();
+      }
+    }, 40);
+    this.fadeTimers.set(audio, timer);
+  }
+
+  stopAudio(audio) {
+    if (!audio) return;
+    const fadeTimer = this.fadeTimers.get(audio);
+    if (fadeTimer) clearInterval(fadeTimer);
+    this.fadeTimers.delete(audio);
+    audio.pause?.();
+    try { audio.currentTime = 0; } catch { /* Some streams are not seekable. */ }
+    this.activeAudio.delete(audio);
+    this.targetVolumes.delete(audio);
+  }
+
+  transitionBgm(settings = {}) {
+    const assetKey = String(settings.assetKey ?? '');
+    const asset = this.manifest[assetKey];
+    const fadeMs = Math.max(0, Number(settings.fadeMs) || 0);
+    const targetVolume = Math.min(1, Math.max(0, Number(settings.volume ?? 70) / 100));
+    if (assetKey && asset?.kind !== 'bgm') return;
+
+    if (assetKey && assetKey === this.currentBgmKey && this.currentBgm) {
+      this.currentBgm.loop = settings.loop ?? asset.loop ?? true;
+      this.fade(this.currentBgm, this.targetVolumes.get(this.currentBgm) ?? 0, targetVolume, fadeMs);
+      return;
+    }
+
+    const previous = this.currentBgm;
+    this.currentBgm = null;
+    this.currentBgmKey = '';
+    if (previous) {
+      const previousVolume = this.targetVolumes.get(previous) ?? previous.volume ?? 0;
+      this.fade(previous, previousVolume, 0, fadeMs, () => this.stopAudio(previous));
+    }
+    if (!assetKey || !asset) return;
+
+    const next = this.createAudio(assetKey);
+    if (!next) return;
+    next.loop = settings.loop ?? asset.loop ?? true;
+    this.currentBgm = next;
+    this.currentBgmKey = assetKey;
+    this.setAudioVolume(next, 0);
+    this.safePlay(next);
+    this.fade(next, 0, targetVolume, fadeMs);
+  }
+
+  playSe(assetKey, volume = 80) {
+    const asset = this.manifest[assetKey];
+    if (!this.unlocked || !assetKey || asset?.kind !== 'se') return;
+    const audio = this.createAudio(assetKey);
+    if (!audio) return;
+    this.setAudioVolume(audio, Number(volume) / 100);
+    const cleanup = () => this.stopAudio(audio);
+    audio.addEventListener?.('ended', cleanup, { once: true });
+    audio.addEventListener?.('error', cleanup, { once: true });
+    this.safePlay(audio);
+  }
+
+  enterScene(soundAsset = null) {
+    this.pendingSound = soundAsset;
+    if (!this.unlocked) return;
+    const sound = soundAsset ?? {
+      bgm: { assetKey: '', volume: 70, fadeMs: 800, loop: true },
+      se: { startAssetKey: '', actionAssetKey: '', volume: 80 },
+    };
+    this.transitionBgm(sound.bgm);
+    this.playSe(sound.se?.startAssetKey, sound.se?.volume);
+  }
+
+  playActionSe(soundAsset = this.pendingSound) {
+    this.playSe(soundAsset?.se?.actionAssetKey, soundAsset?.se?.volume);
+  }
+
+  setMuted(muted) {
+    this.muted = Boolean(muted);
+    this.activeAudio.forEach((audio) => {
+      audio.volume = this.muted ? 0 : this.targetVolumes.get(audio) ?? 0;
+    });
+  }
+
+  destroy() {
+    this.unlockTarget?.removeEventListener?.('pointerdown', this.handleUnlock, { capture: true });
+    this.unlockTarget?.removeEventListener?.('keydown', this.handleUnlock, { capture: true });
+    this.fadeTimers.forEach((timer) => clearInterval(timer));
+    this.fadeTimers.clear();
+    [...this.activeAudio].forEach((audio) => this.stopAudio(audio));
+    this.currentBgm = null;
+    this.currentBgmKey = '';
+  }
+}
+
 const VALID_CHOICES = new Set(['left', 'right', 'self']);
 
 /** @type {ChoiceStateMachine | null} */
@@ -182,8 +410,17 @@ export function setChoiceStateMachine(machine) {
  * @returns {{ leftPercent: number, rightPercent: number }}
  */
 export function getMockStats(stage) {
-  void stage;
-  return { leftPercent: 45, rightPercent: 55 };
+  const configured = typeof stage === 'object' && stage ? stage.stats : null;
+  const percentage = (value, fallback) => {
+    const number = value === '' || value == null ? Number.NaN : Number(value);
+    return Number.isFinite(number)
+      ? Math.min(100, Math.max(0, number))
+      : fallback;
+  };
+  return {
+    leftPercent: percentage(configured?.leftPercent, 45),
+    rightPercent: percentage(configured?.rightPercent, 55),
+  };
 }
 
 /**
@@ -214,11 +451,16 @@ function createAssetFallback(documentRef, fallback) {
  * Accepts either MediaAsset('char_20f') or an object containing assetKey.
  * documentRef is injectable for DOM tests.
  *
- * @param {string | { assetKey: string, documentRef?: Document }} props
+ * @param {string | { assetKey: string, imageName?: string, imageSrc?: string, assetManifest?: AssetManifest, documentRef?: Document }} props
  * @returns {HTMLDivElement}
  */
 export function MediaAsset(props) {
   const assetKey = typeof props === 'string' ? props : props?.assetKey;
+  const imageName = typeof props === 'object' ? props?.imageName : '';
+  const imageSrc = typeof props === 'object' ? props?.imageSrc : '';
+  const assetManifest = typeof props === 'object' && props?.assetManifest
+    ? props.assetManifest
+    : ASSET_MANIFEST;
   const documentRef =
     (typeof props === 'object' && props?.documentRef) ||
     (typeof document === 'undefined' ? null : document);
@@ -231,7 +473,17 @@ export function MediaAsset(props) {
   root.className = 'media-asset';
   root.dataset.assetKey = assetKey || '';
 
-  const asset = ASSET_MANIFEST[assetKey];
+  const manifestAsset = assetManifest[assetKey];
+  const asset = typeof imageSrc === 'string' && imageSrc.startsWith('data:image/')
+    ? {
+        type: 'image',
+        src: imageSrc,
+        fallback: {
+          label: imageName || manifestAsset?.fallback?.label || assetKey || CONTENT.assetFallbacks.unspecified,
+          color: manifestAsset?.fallback?.color || '#666b70',
+        },
+      }
+    : manifestAsset;
   const fallback = asset?.fallback ?? {
     label: assetKey
       ? CONTENT.assetFallbacks.unknownPrefix + assetKey
@@ -290,7 +542,7 @@ export function MediaAsset(props) {
  * @param {ReturnType<typeof createChoiceHoldController>} holdController
  * @returns {HTMLElement}
  */
-function createChoiceOption(documentRef, side, passenger, infoLevel, holdController) {
+function createChoiceOption(documentRef, side, passenger, infoLevel, holdController, assetManifest) {
   const option = documentRef.createElement('button');
   option.className = 'choice-prompt__option choice-prompt__option--' + side;
   option.type = 'button';
@@ -313,6 +565,9 @@ function createChoiceOption(documentRef, side, passenger, infoLevel, holdControl
   if (infoLevel === 'text_and_illustration') {
     option.append(MediaAsset({
       assetKey: passenger.assetKey ?? '',
+      imageName: passenger.imageName ?? '',
+      imageSrc: passenger.imageSrc ?? '',
+      assetManifest,
       documentRef,
     }));
   }
@@ -336,6 +591,7 @@ function createChoiceOption(documentRef, side, passenger, infoLevel, holdControl
  *   onChoice?: (choice: Choice) => void,
  *   onProgress?: (choice: Choice, progress: number) => void,
  *   holdDurationMs?: number
+ *   assetManifest?: AssetManifest
  * }} props
  * @returns {HTMLElement}
  */
@@ -351,11 +607,12 @@ export function ChoicePrompt(props) {
   }
   if (
     !stageInfo ||
-    !['text_only', 'text_and_illustration', 'social_statistics'].includes(stageInfo.infoLevel)
+    !['text_only', 'text_and_illustration', 'text_and_stats'].includes(stageInfo.infoLevel)
   ) {
     throw new TypeError('ChoicePrompt received invalid StageInfo.');
   }
   const windowRef = documentRef.defaultView;
+  const assetManifest = wrappedProps ? (props.assetManifest ?? ASSET_MANIFEST) : ASSET_MANIFEST;
   const holdController = createChoiceHoldController({
     durationMs: wrappedProps ? props.holdDurationMs : undefined,
     now: () => windowRef?.performance?.now() ?? Date.now(),
@@ -376,7 +633,7 @@ export function ChoicePrompt(props) {
   prompt.dataset.infoLevel = stageInfo.infoLevel;
   prompt.setAttribute('aria-label', CONTENT.choicePrompt.ariaLabel);
 
-  if (stageInfo.infoLevel === 'social_statistics') {
+  if (stageInfo.infoLevel === 'text_and_stats') {
     prompt.append(SocialStatistics({
       stageInfo,
       stats: getMockStats(stageInfo),
@@ -391,6 +648,7 @@ export function ChoicePrompt(props) {
       stageInfo.left,
       stageInfo.infoLevel,
       holdController,
+      assetManifest,
     ),
     createChoiceOption(
       documentRef,
@@ -398,6 +656,7 @@ export function ChoicePrompt(props) {
       stageInfo.right,
       stageInfo.infoLevel,
       holdController,
+      assetManifest,
     ),
   );
   return prompt;
@@ -418,28 +677,42 @@ export function SocialStatistics({ stageInfo, stats, documentRef }) {
   title.textContent = CONTENT.socialStatistics.title;
   const description = documentRef.createElement('p');
   description.textContent = CONTENT.socialStatistics.description;
-  const bars = documentRef.createElement('div');
-  bars.className = 'social-statistics__bars';
-
+  const comparison = documentRef.createElement('div');
+  comparison.className = 'social-statistics__comparison';
+  const labels = documentRef.createElement('div');
+  labels.className = 'social-statistics__labels';
   [
-    [stageInfo.left.label, stats.leftPercent],
-    [stageInfo.right.label, stats.rightPercent],
-  ].forEach(([labelText, percent]) => {
-    const row = documentRef.createElement('div');
-    row.className = 'social-statistics__row';
+    ['left', stageInfo.left.label, stats.leftPercent],
+    ['right', stageInfo.right.label, stats.rightPercent],
+  ].forEach(([side, labelText, percent]) => {
+    const item = documentRef.createElement('div');
+    item.className = `social-statistics__label social-statistics__label--${side}`;
     const label = documentRef.createElement('span');
     label.textContent = labelText;
-    const bar = documentRef.createElement('div');
-    bar.className = 'social-statistics__bar';
-    const fill = documentRef.createElement('span');
-    fill.style.setProperty('--social-percent', percent + '%');
-    bar.append(fill);
     const value = documentRef.createElement('strong');
     value.textContent = percent + '%';
-    row.append(label, bar, value);
-    bars.append(row);
+    item.append(label, value);
+    labels.append(item);
   });
-  panel.append(title, description, bars);
+
+  const total = Math.max(0, stats.leftPercent) + Math.max(0, stats.rightPercent);
+  const leftShare = total > 0 ? (Math.max(0, stats.leftPercent) / total) * 100 : 50;
+  const bar = documentRef.createElement('div');
+  bar.className = 'social-statistics__bar';
+  bar.setAttribute('role', 'img');
+  bar.setAttribute(
+    'aria-label',
+    `${stageInfo.left.label} ${stats.leftPercent}%、${stageInfo.right.label} ${stats.rightPercent}%`,
+  );
+  const leftFill = documentRef.createElement('span');
+  leftFill.className = 'social-statistics__segment social-statistics__segment--left';
+  leftFill.style.setProperty('--social-share', leftShare + '%');
+  const rightFill = documentRef.createElement('span');
+  rightFill.className = 'social-statistics__segment social-statistics__segment--right';
+  rightFill.style.setProperty('--social-share', 100 - leftShare + '%');
+  bar.append(leftFill, rightFill);
+  comparison.append(labels, bar);
+  panel.append(title, description, comparison);
   return panel;
 }
 
@@ -523,51 +796,6 @@ export function createChoiceHoldController({
 }
 
 /**
- * Debug UI showing the keys accepted during STAGE_WAIT_INPUT.
- *
- * @param {{ documentRef?: Document }} [props]
- * @returns {HTMLElement}
- */
-export function InputIndicator(props = {}) {
-  const documentRef = props.documentRef ?? (typeof document === 'undefined' ? null : document);
-  if (!documentRef) throw new Error('InputIndicator requires a DOM Document.');
-
-  const indicator = documentRef.createElement('aside');
-  indicator.className = 'input-indicator';
-  indicator.setAttribute('aria-label', CONTENT.inputIndicator.ariaLabel);
-
-  const title = documentRef.createElement('p');
-  title.className = 'input-indicator__title';
-  title.textContent = CONTENT.inputIndicator.title;
-  indicator.append(title);
-  const holdHint = documentRef.createElement('p');
-  holdHint.className = 'input-indicator__hint';
-  holdHint.textContent = CONTENT.inputIndicator.holdHint;
-  indicator.append(holdHint);
-
-  /** @type {Array<[string, string]>} */
-  const controls = [
-    ['\u2190', CONTENT.choices.leftPerson],
-    ['\u2193', CONTENT.choices.selfAction],
-    ['\u2192', CONTENT.choices.rightPerson],
-  ];
-  const list = documentRef.createElement('div');
-  list.className = 'input-indicator__controls';
-  controls.forEach(([keyName, labelText]) => {
-    const control = documentRef.createElement('span');
-    control.className = 'input-indicator__control';
-    const key = documentRef.createElement('kbd');
-    key.textContent = keyName;
-    const label = documentRef.createElement('span');
-    label.textContent = labelText;
-    control.append(key, label);
-    list.append(control);
-  });
-  indicator.append(list);
-  return indicator;
-}
-
-/**
  * Convert response time into a simple linear hesitation score.
  * Immediate input is 0%; consuming the full input window is 100%.
  *
@@ -592,12 +820,12 @@ export function calculateHesitationDegree(responseTimeMs, inputWindowMs) {
  *   dominantChoice: Choice | null
  * }}
  */
-export function getSessionDiagnosis(results) {
+export function getSessionDiagnosis(results, diagnosisContent = CONTENT.diagnosis) {
   if (!results.length) {
     return {
       averageHesitation: 0,
-      title: CONTENT.diagnosis.empty.title,
-      message: CONTENT.diagnosis.empty.message,
+      title: diagnosisContent.empty.title,
+      message: diagnosisContent.empty.message,
       dominantChoice: null,
     };
   }
@@ -617,23 +845,23 @@ export function getSessionDiagnosis(results) {
   if (averageHesitation <= 33) {
     return {
       averageHesitation,
-      title: CONTENT.diagnosis.intuitive.title,
-      message: CONTENT.diagnosis.intuitive.message,
+      title: diagnosisContent.intuitive.title,
+      message: diagnosisContent.intuitive.message,
       dominantChoice,
     };
   }
   if (averageHesitation <= 66) {
     return {
       averageHesitation,
-      title: CONTENT.diagnosis.balanced.title,
-      message: CONTENT.diagnosis.balanced.message,
+      title: diagnosisContent.balanced.title,
+      message: diagnosisContent.balanced.message,
       dominantChoice,
     };
   }
   return {
     averageHesitation,
-    title: CONTENT.diagnosis.thoughtful.title,
-    message: CONTENT.diagnosis.thoughtful.message,
+    title: diagnosisContent.thoughtful.title,
+    message: diagnosisContent.thoughtful.message,
     dominantChoice,
   };
 }
@@ -667,12 +895,14 @@ export function HesitationEffect({ choice, documentRef = typeof document === 'un
  * @param {Object} props
  * @param {readonly StageResult[]} props.results
  * @param {readonly QuestionSet[]} props.questionSets
+ * @param {typeof CONTENT.diagnosis} [props.diagnosisContent]
  * @param {Document} [props.documentRef]
  * @returns {HTMLElement}
  */
 export function TicketMock({
   results,
   questionSets,
+  diagnosisContent = CONTENT.diagnosis,
   documentRef = typeof document === 'undefined' ? null : document,
 }) {
   if (!documentRef) throw new Error('TicketMock requires a DOM Document.');
@@ -690,7 +920,7 @@ export function TicketMock({
   header.append(eyebrow, title);
   ticket.append(header);
 
-  const diagnosis = getSessionDiagnosis(results);
+  const diagnosis = getSessionDiagnosis(results, diagnosisContent);
   const diagnosisBlock = documentRef.createElement('div');
   diagnosisBlock.className = 'ticket-mock__diagnosis';
   const diagnosisTitle = documentRef.createElement('strong');
@@ -938,7 +1168,7 @@ export const DEFAULT_SCENE_DURATIONS = Object.freeze({
   sessionEnd: 4000,
 });
 
-export const DEFAULT_SCENE_SEQUENCE = DEFAULT_APP_CONFIG.sceneSequence;
+export const DEFAULT_SCENE_SEQUENCE = DEFAULT_RUNTIME_CONFIG.sceneSequence;
 
 /**
  * @typedef {Object} StageResult
@@ -973,9 +1203,13 @@ export class SceneManager {
    * @param {Partial<typeof DEFAULT_SCENE_DURATIONS>} [options.durations]
    * @param {readonly Object[]} [options.sceneSequence]
    * @param {number} [options.choiceHoldDurationMs]
+   * @param {typeof CONTENT.diagnosis} [options.diagnosis]
    * @param {() => number} [options.random]
    * @param {Choice} [options.defaultChoice]
    * @param {() => number} [options.now]
+   * @param {AudioManager} [options.audioManager]
+   * @param {boolean} [options.audioMuted]
+   * @param {{images?: Record<string, Object>, audio?: Record<string, Object>}} [options.customAssets]
    */
   constructor({
     root,
@@ -984,9 +1218,13 @@ export class SceneManager {
     durations = {},
     sceneSequence = DEFAULT_SCENE_SEQUENCE,
     choiceHoldDurationMs = CHOICE_HOLD_DURATION_MS,
+    diagnosis = CONTENT.diagnosis,
     defaultChoice = 'self',
     now = () => Date.now(),
     random = Math.random,
+    audioManager = null,
+    audioMuted = false,
+    customAssets = {},
   }) {
     if (!root) throw new TypeError('SceneManager requires a root element.');
     if (!VALID_CHOICES.has(defaultChoice)) {
@@ -1031,6 +1269,7 @@ export class SceneManager {
         durations.sceneIntroEmpty ?? legacyIntroHalf ?? DEFAULT_SCENE_DURATIONS.sceneIntroEmpty,
     };
     this.choiceHoldDurationMs = choiceHoldDurationMs;
+    this.diagnosis = diagnosis;
     this.defaultChoice = defaultChoice;
     this.now = now;
     this.state = SCENE_STATES.ATTRACT;
@@ -1049,6 +1288,13 @@ export class SceneManager {
     this.started = false;
     this.listeners = new Set();
     this.windowRef = root.ownerDocument?.defaultView ?? null;
+    this.assetManifest = runtimeImageManifest(customAssets);
+    this.audioManifest = runtimeAudioManifest(customAssets);
+    this.audioManager = audioManager ?? new AudioManager({
+      windowRef: this.windowRef,
+      manifest: this.audioManifest,
+    });
+    this.audioManager.setMuted(audioMuted);
     this.backgroundPreloadCache = new Map();
     this.backgroundRequestId = 0;
     this.requestedBackgroundKey = null;
@@ -1062,10 +1308,13 @@ export class SceneManager {
     return this.questionSets.flatMap((questionSet, questionSetIndex) =>
       questionSet.stages.map((stage) => {
         const variants = Array.isArray(stage.variants) ? stage.variants : [];
+        const presentationType = stage.presentationType ?? stage.selectionMode ?? 'random';
         const randomIndex = variants.length
           ? Math.min(variants.length - 1, Math.floor(this.random() * variants.length))
           : -1;
-        const variant = variants[randomIndex];
+        const variant = presentationType === 'random'
+          ? variants[randomIndex]
+          : variants.find((candidate) => candidate.infoLevel === presentationType) ?? variants[randomIndex];
         const resolvedStage = variant
           ? {
               ...stage,
@@ -1131,7 +1380,7 @@ export class SceneManager {
       return this.backgroundPreloadCache.get(cacheKey);
     }
 
-    const asset = assetOverride ?? ASSET_MANIFEST[assetKey];
+    const asset = assetOverride ?? this.assetManifest[assetKey];
     if (!asset?.src || asset.type !== 'image') {
       const unavailable = Promise.resolve(false);
       this.backgroundPreloadCache.set(cacheKey, unavailable);
@@ -1192,7 +1441,7 @@ export class SceneManager {
     const loaded = await this.preloadBackground(assetKey, assetOverride, cacheKey);
     if (requestId !== this.backgroundRequestId) return false;
 
-    const asset = assetOverride ?? ASSET_MANIFEST[assetKey];
+    const asset = assetOverride ?? this.assetManifest[assetKey];
     if (!loaded || !asset) {
       this.currentBackgroundKey = null;
       this.backgroundLayer.classList.add('background-layer--fallback');
@@ -1244,7 +1493,7 @@ export class SceneManager {
   syncBackgroundForState() {
     if (this.activeScene?.backgroundAssetKey) {
       if (this.activeScene.backgroundImageSrc) {
-        const fallback = ASSET_MANIFEST[this.activeScene.backgroundAssetKey]?.fallback ?? {
+        const fallback = this.assetManifest[this.activeScene.backgroundAssetKey]?.fallback ?? {
           label: this.activeScene.backgroundImageName || this.activeScene.label,
           color: '#101820',
         };
@@ -1286,6 +1535,7 @@ export class SceneManager {
   start() {
     if (this.started) return;
     this.started = true;
+    this.audioManager.start(this.windowRef);
     this.windowRef?.addEventListener('keydown', this.handleAttractKeyDown);
     void this.preloadBackgrounds();
     this.enterState(SCENE_STATES.ATTRACT);
@@ -1294,6 +1544,7 @@ export class SceneManager {
   destroy() {
     this.clearStateTimer();
     this.windowRef?.removeEventListener('keydown', this.handleAttractKeyDown);
+    this.audioManager.destroy();
     this.listeners.clear();
     this.started = false;
   }
@@ -1333,6 +1584,13 @@ export class SceneManager {
   }
 
   beginSequenceSession() {
+    this.startSequenceAt(this.sceneSequence[0]?.id);
+  }
+
+  /** Start a preview/session from any configured scene id. */
+  startSequenceAt(sceneId) {
+    if (!this.sceneSequence?.length) return false;
+    const targetIndex = Math.max(0, this.sceneSequence.findIndex((scene) => scene.id === sceneId));
     this.clearStateTimer();
     this.stageSequence = this.buildStageSequence();
     this.stages = this.stageSequence.map((entry) => entry.stage);
@@ -1342,9 +1600,13 @@ export class SceneManager {
     this.pendingHesitationPercent = 0;
     this.pendingResponseTimeMs = 0;
     this.inputStartedAt = null;
-    this.stageIndex = -1;
-    this.sceneIndex = 0;
+    const precedingStageInputs = this.sceneSequence
+      .slice(0, targetIndex)
+      .filter((scene) => scene.behavior === 'stage_input').length;
+    this.stageIndex = precedingStageInputs - 1;
+    this.sceneIndex = targetIndex;
     this.enterSequenceScene();
+    return true;
   }
 
   enterSequenceScene() {
@@ -1370,6 +1632,7 @@ export class SceneManager {
     }
 
     this.state = scene.id;
+    this.audioManager.enterScene(scene.soundAsset);
     void this.syncBackgroundForState();
     this.render();
     this.notifySnapshot();
@@ -1402,6 +1665,7 @@ export class SceneManager {
 
     if (scene.behavior === 'stage_input') {
       if (event.type === 'CHOICE_MADE' && VALID_CHOICES.has(event.choice)) {
+        this.audioManager.playActionSe(scene.soundAsset);
         this.pendingChoice = event.choice;
         this.pendingSource = 'input';
         this.pendingResponseTimeMs = Math.max(0, this.now() - this.inputStartedAt);
@@ -1440,6 +1704,10 @@ export class SceneManager {
     this.listeners.add(listener);
     listener(this.getSnapshot());
     return () => this.listeners.delete(listener);
+  }
+
+  setAudioMuted(muted) {
+    this.audioManager.setMuted(muted);
   }
 
   /**
@@ -1586,6 +1854,8 @@ export class SceneManager {
     this.clearStateTimer();
     this.state = nextState;
 
+    if (nextState === SCENE_STATES.ATTRACT) this.audioManager.enterScene(null);
+
     if (nextState === SCENE_STATES.SESSION_START) {
       this.stageSequence = this.buildStageSequence();
       this.stages = this.stageSequence.map((entry) => entry.stage);
@@ -1680,19 +1950,14 @@ export class SceneManager {
     if (scene.behavior === 'stage_input') {
       const entry = this.currentEntry;
       if (!entry) return;
-      const defaultTitle =
-        CONTENT.scenes.stage.questionSetPrefix +
-        entry.questionSetNumber +
-        CONTENT.scenes.stage.titleSeparator +
-        CONTENT.scenes.stage.titlePrefix +
-        entry.stage.stage;
+      const defaultTitle = CONTENT.scenes.stage.questionSetPrefix;
       screen = this.createScreen(scene.title || defaultTitle, scene.message);
       screen.append(ChoicePrompt({
         stageInfo: entry.stage,
         documentRef,
         holdDurationMs: this.choiceHoldDurationMs,
+        assetManifest: this.assetManifest,
       }));
-      screen.append(InputIndicator({ documentRef }));
     } else if (scene.behavior === 'summary') {
       const defaultMessage =
         CONTENT.scenes.summary.messagePrefix +
@@ -1707,6 +1972,7 @@ export class SceneManager {
       screen.append(TicketMock({
         results: this.results,
         questionSets: this.questionSets,
+        diagnosisContent: this.diagnosis,
         documentRef,
       }));
     } else {
@@ -1766,19 +2032,15 @@ export class SceneManager {
         break;
       case SCENE_STATES.STAGE_WAIT_INPUT:
         screen = this.createScreen(
-          CONTENT.scenes.stage.questionSetPrefix +
-            entry.questionSetNumber +
-            CONTENT.scenes.stage.titleSeparator +
-            CONTENT.scenes.stage.titlePrefix +
-            stage.stage,
+          CONTENT.scenes.stage.questionSetPrefix,
           CONTENT.scenes.stage.inputHint,
         );
         screen.append(ChoicePrompt({
           stageInfo: stage,
           documentRef,
           holdDurationMs: this.choiceHoldDurationMs,
+          assetManifest: this.assetManifest,
         }));
-        screen.append(InputIndicator({ documentRef }));
         break;
       /*
        * case SCENE_STATES.STAGE_HESITATION:
@@ -1810,6 +2072,7 @@ export class SceneManager {
         screen.append(TicketMock({
           results: this.results,
           questionSets: this.questionSets,
+          diagnosisContent: this.diagnosis,
           documentRef,
         }));
         break;

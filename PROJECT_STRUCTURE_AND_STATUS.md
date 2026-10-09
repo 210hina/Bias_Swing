@@ -1,6 +1,6 @@
 # 揺れる電車 Webアプリ：ファイル構造と実装状況
 
-最終更新: 2026-10-07
+最終更新: 2026-10-09
 
 ## 1. プロジェクト概要
 
@@ -39,7 +39,9 @@ RockingTrain_test/
     ├── 02_train_Far_Empty.png     # 空いた車内・遠景
     ├── 03_train_Close_Full.png    # 設問画面・近景
     ├── char_20f.png               # 20代女性
-    └── char_70m.png               # 70代男性
+    ├── char_70m.png               # 70代男性
+    └── audio/
+        └── README.md              # BGM / SEの配置ファイル名
 ```
 
 ### 現在ファイルが用意されていない登録済みアセット
@@ -50,6 +52,16 @@ RockingTrain_test/
 - `assets/hesitation_effect.gif`
 
 画像がない場合は、登録されているフォールバック表示が使用されます。
+
+`main.js`の`AUDIO_MANIFEST`には次の音源も登録されています。実ファイルは`assets/audio/`へ配置してください。
+
+- `bgm_crowded.mp3`
+- `bgm_quiet.mp3`
+- `se_input.wav`
+- `se_hesitation.wav`
+- `se_reveal.mp3`
+
+音源がない場合は無音で進行します。
 
 ---
 
@@ -86,8 +98,9 @@ admin.html
 admin.js
     ↓ 正規化・保存
 config-store.js
-    ↓ Local Storage / Session Storage
+    ↓ Local Storage（本番設定）
 app.js
+    ↑ postMessage（プレビュー設定）
     ↓ 設定を渡す
 SceneManager（main.js）
     ↓
@@ -103,7 +116,7 @@ SceneManager（main.js）
 
 ### 管理画面プレビュー時
 
-1. 編集中の設定をSession Storageへ一時保存します。
+1. 編集中の設定を管理画面から`postMessage`で直接渡します。
 2. `index.html?preview=1`をiframeで起動します。
 3. 本体から管理画面へ現在のシーン情報を`postMessage`で送ります。
 4. 管理画面のタイムラインが実行中シーンをハイライトします。
@@ -143,37 +156,37 @@ SceneManager（main.js）
 現在のスキーマバージョン:
 
 ```text
-schemaVersion: 3
+schemaVersion: 4
 ```
 
 概略構造:
 
 ```js
 {
-  schemaVersion: 3,
+  schemaVersion: 4,
   choiceHoldDurationMs: 2000,
-  sceneSequence: [
+  introduction: {
+    sequence: [/* 導入画面 */]
+  },
+  questionScenes: [
     {
-      id: 'SCENE_INTRO_FULL',
-      behavior: 'timed',
-      label: '導入：混雑した車内',
-      durationMs: 2000,
-      backgroundAssetKey: 'train_far_full',
-      backgroundImageName: '',
-      backgroundImageSrc: '',
-      title: '電車が揺れています',
-      message: '車内は混雑しています。'
+      id: 'question_scene_01',
+      label: 'シーン 1',
+      sequence: [/* このシーン固有の画面遷移 */],
+      questionSet: {
+        id: 'priority_seat_01',
+        stages: []
+      }
     }
   ],
-  questionSets: [
-    {
-      id: 'priority_seat_01',
-      label: '設問セット1',
-      stages: []
-    }
-  ]
+  result: {
+    sequence: [/* 結果・終了画面 */],
+    diagnosis: {/* 診断文 */}
+  }
 }
 ```
+
+管理時はイントロ、設問シーン群、結果に分割されています。実行時に`buildRuntimeConfig()`が全グループを一本の`sceneSequence`と`questionSets`へ変換します。
 
 ### `label`と画面表示文言の違い
 
@@ -209,8 +222,8 @@ schemaVersion: 3
 | 1 | `SESSION_START` | 通常演出 | 400ms | `01_train_Far_Full.png` |
 | 2 | `SCENE_INTRO_FULL` | 通常演出 | 2000ms | `01_train_Far_Full.png` |
 | 3 | `SCENE_INTRO_EMPTY` | 通常演出 | 2000ms | `02_train_Far_Empty.png` |
-| 4 | `STAGE_1_INPUT` | 次の設問 | 12000ms | `03_train_Close_Full.png` |
-| 5 | `STAGE_2_INPUT` | 次の設問 | 12000ms | `03_train_Close_Full.png` |
+| 4 | `SCENE_1_STAGE_1_INPUT` | 次の設問 | 12000ms | `03_train_Close_Full.png` |
+| 5 | `SCENE_1_STAGE_2_INPUT` | 次の設問 | 12000ms | `03_train_Close_Full.png` |
 | 6 | `SESSION_SUMMARY` | 総合結果 | 4000ms | `02_train_Far_Empty.png` |
 | 7 | `SESSION_END` | 終了 | 4000ms | `02_train_Far_Empty.png` |
 
@@ -233,7 +246,7 @@ schemaVersion: 3
 ```text
 QuestionSet 1
 ├── Stage 1：文字のみ
-└── Stage 2：2種類からランダム分岐
+└── Stage 2：提示タイプを選択
     ├── 2α：文字 + イラスト
     └── 2β：文字 + 他者の選択率
 ```
@@ -250,18 +263,21 @@ QuestionSet 1
 - `infoLevel: "text_and_illustration"`
 - 左: `char_20f.png`
 - 右: `char_70m.png`
+- 左右それぞれ管理画面からPNG／JPEG／WebP／GIFをアップロードできます。
+- アップロード画像は`imageSrc`としてJSONとブラウザ保存に含まれ、既存`assetKey`より優先して表示されます。
 
 ### Stage 2β
 
-- `infoLevel: "social_statistics"`
+- `infoLevel: "text_and_stats"`
 - 選択する前に他者の選択率を表示します。
-- 現在のモック値は左45%、右55%です。
+- 左右の割合は管理画面から編集でき、未入力時は左45%、右55%です。
 - 統計を見た状態で左右を再選択します。
 
-### ランダム分岐
+### 提示タイプ設定
 
-- セッション開始時に`Math.random()`で2αまたは2βを選びます。
-- 初期状態では各50%です。
+- シーンごとに2α固定、2β固定、ランダム分岐を選べます。
+- ランダム分岐ではセッション開始時に`Math.random()`で2αまたは2βを選びます。
+- ランダム分岐の確率は各50%です。
 - Stage 1の回答内容は分岐確率へ影響しません。
 - QuestionSetが複数ある場合、各ランダムStageを独立して抽選します。
 
@@ -360,7 +376,7 @@ ATTRACT
 | `MediaAsset` | 実装済み | 画像、動画、GIFとフォールバック表示 |
 | `ChoicePrompt` | 実装済み | 情報レベルごとの選択肢表示 |
 | `SocialStatistics` | 実装済み | Stage 2βの選択前統計 |
-| `InputIndicator` | 実装済み | キー操作のデバッグ表示 |
+| `InputIndicator` | 削除済み | 本編からキー操作案内を撤去 |
 | `TicketMock` | 実装済み | 総合結果の切符風UI |
 | `HesitationEffect` | コンポーネントのみ残存 | 現在の遷移では使用しない |
 
@@ -394,13 +410,20 @@ ATTRACT
 
 ## 14. 管理画面の実装状況
 
-### Scene & Timing
+### タブ構成
 
-- シーンの追加
-- 選択中シーンの直後への挿入
-- シーン名の直接編集
-- 上下移動
-- 削除
+- イントロダクション
+- シーン1〜N（横スクロール対応）
+- 結果・サマリー
+- 10シーン以上を追加可能
+
+### 各シーンタブ
+
+- 設問シーンの追加、削除
+- 画面イベントと設問設定を同じカード内で一括管理
+- 選択中画面イベントの直後への追加
+- 画面イベント名の直接編集
+- ドラッグ＆ドロップによる画面イベントの並び替え、削除
 - シーンID編集
 - 動作種別編集
 - 表示時間のスライダー／数値編集
@@ -408,17 +431,20 @@ ATTRACT
 - ローカル背景画像のアップロード
 - タイトル／本文編集
 - 選択ホールド時間編集
+- 開始時BGM、ループ、音量、クロスフェード時間
+- 開始時SE、選択・アクション時SE、SE音量
 
-選択中のカードは緑色の枠で表示されます。
+選択中のカードはオレンジ色の枠で表示されます。
 
-### Stage & Sequence
+### 設問・提示情報の編集
 
-- QuestionSetの追加、削除、上下移動
-- Stageの追加、削除、上下移動
-- `infoLevel`編集
+- 動作種別が`stage_input`の画面イベントを選ぶと、そのカード内に設問設定を表示
+- 文字のみ／2α（イラスト）／2β（他者の選択率）／ランダム分岐をイベントごとに選択
 - 左右の乗客ラベル編集
 - 左右の`assetKey`編集
-- Stage 2α／2βそれぞれの編集
+- 2αの左右イラストのアップロード、サムネイル確認、解除
+- 2βの左右選択率を編集
+- 画面イベントの削除・動作種別変更・並び替えに設問データが追従
 
 ### Live Simulator
 
@@ -426,6 +452,9 @@ ATTRACT
 - 別ウィンドウプレビュー
 - 編集中設定の一時適用
 - 実行中シーンのタイムライン表示
+- 選択中画面イベントからテスト
+- イントロから全体テスト
+- プレビュー音声のON／OFF
 
 ### Import / Export
 
@@ -433,7 +462,7 @@ ATTRACT
 - JSON Import
 - Local Storage保存
 - 初期設定への復帰
-- schemaVersion 1、2から3への旧形式変換
+- schemaVersion 1〜3から4への旧形式変換
 
 ---
 
@@ -472,11 +501,9 @@ Local Storage: rocking-train-config-v1
 
 ### プレビュー設定
 
-```text
-Session Storage: rocking-train-preview-config-v1
-```
+通常の管理画面プレビューでは、設定とアップロード画像を`postMessage`でiframe／別ウィンドウへ直接送信します。`rocking-train-preview-config-v1`は、管理画面から切り離してプレビューURLを開いた場合の互換フォールバックとして残しています。
 
-キー名の`v1`は互換性維持のため残しています。内部データの現在の`schemaVersion`は3です。
+キー名の`v1`は互換性維持のため残しています。内部データの現在の`schemaVersion`は4です。
 
 JSON反映の具体的な手順は`CONFIG_JSON_GUIDE.md`を参照してください。
 
@@ -496,17 +523,18 @@ JSON反映の具体的な手順は`CONFIG_JSON_GUIDE.md`を参照してくださ
 
 ### 現在は固定またはモック
 
-- 他者の選択率は左45%、右55%
+- 他者の選択率の初期値は左45%、右55%
 - Stage 2α／2βの確率は50%ずつ
 - タイムアウト時のデフォルト選択は`self`
 
 ### 運用上の注意
 
-- `stage_input`シーン数がStage数より少ない場合、残りのStageは表示されません。
-- `stage_input`シーン数がStage数より多い場合、余った入力シーンは実行時にスキップされます。
+- 管理画面では`stage_input`画面イベント数と内部Stage数を自動同期します。
 - `end`シーンより後ろへ置いたシーンは実行されません。
 - Local Storageはブラウザ、ホスト名、ポート番号ごとに別管理です。
 - Data URL画像が大きいとLocal Storage上限を超える可能性があります。
+- ブラウザの自動再生制限により、BGM / SEは最初のクリックまたはキー操作後に有効になります。
+- 音源ファイル未配置時はコンソールへ警告を出し、無音で進行します。
 - `assets/README.md`には旧`STAGE_REVEAL`などの記述が一部残っています。本書の内容が現在の実装です。
 
 ### 互換コード
@@ -521,7 +549,9 @@ JSON反映の具体的な手順は`CONFIG_JSON_GUIDE.md`を参照してくださ
 
 - 全JavaScriptファイルの構文確認
 - 設定JSONの正規化
-- schemaVersion 1、2から3への移行
+- schemaVersion 1〜3から4への移行
+- 10設問シーンの正規化とランタイム展開
+- 任意の設問シーンタブからのプレビュー開始
 - 動的シーンの追加順実行
 - シーンごとの表示時間
 - シーンごとの背景切り替え
@@ -532,4 +562,3 @@ JSON反映の具体的な手順は`CONFIG_JSON_GUIDE.md`を参照してくださ
 - Stage 2から総合結果への直接遷移
 - 終了画面から待機画面への復帰
 - 上部字幕表示
-

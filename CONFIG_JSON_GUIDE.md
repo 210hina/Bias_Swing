@@ -72,6 +72,7 @@ http://localhost:8000/index.html
 - シーンIDと動作種別
 - タイトルとメッセージ
 - 背景画像
+- カスタム画像・音声アセット
 - Stage構造とランダム分岐
 - 選択ホールド時間
 
@@ -103,11 +104,7 @@ Local Storageは、URLの組み合わせごとに別の保存領域になりま�
 
 ### テスト実行
 
-管理画面で編集中の設定を、一時的にiframeプレビューへ渡します。
-
-```text
-Session Storageキー：rocking-train-preview-config-v1
-```
+管理画面で編集中の設定を`postMessage`でiframeへ直接渡します。アップロード画像を含む大きな設定も、Session Storageの容量制限を受けずに確認できます。
 
 本体の通常起動設定は変更しません。
 
@@ -132,11 +129,13 @@ Local StorageはPCやブラウザ間では共有されません。次の手順�
 
 ---
 
-## アップロードした背景画像について
+## アップロードした画像・音声について
 
-管理画面からローカル画像をアップロードした場合、画像はData URLとして設定JSON内に埋め込まれます。
+管理画面の「アセット管理」でローカル画像・音声を登録した場合、ファイルはData URLとして`customAssets`内に埋め込まれます。
 
-そのため、画像ファイルを別途`assets`フォルダへコピーしなくても、JSON Importで背景画像を復元できます。
+管理画面ではアセットをすべてファイル名で表示・選択します。JSON内では各画面からの参照を維持する内部ID（assetKey）がファイル名から自動生成されますが、管理画面上で入力・編集する必要はありません。
+
+そのため、ファイルを別途`assets`フォルダへコピーしなくても、JSON Importで画像・BGM・SEを復元できます。同じ`assetKey`を背景、人物イラスト、各画面の音響設定から再利用できます。
 
 ただし、大容量画像は次の問題を起こす可能性があります。
 
@@ -162,20 +161,46 @@ config-store.js
 
 ```js
 export const DEFAULT_APP_CONFIG = {
-  schemaVersion: 3,
+  schemaVersion: 5,
+  customAssets: { images: {}, audio: {} },
   choiceHoldDurationMs: 2000,
-  sceneSequence: [/* シーン設定 */],
-  questionSets: [/* 設問設定 */],
+  introduction: { sequence: [/* 導入画面 */] },
+  questionScenes: [
+    {
+      id: 'question_scene_01',
+      sequence: [/* この設問シーン固有の画面 */],
+      questionSet: {/* Stage設定 */},
+    },
+  ],
+  result: {
+    sequence: [/* 結果・終了画面 */],
+    diagnosis: {/* 診断文 */},
+  },
 };
 ```
 
 ExportしたJSONの以下の項目を、`DEFAULT_APP_CONFIG`の対応箇所へ反映してください。
 
 - `choiceHoldDurationMs`
-- `sceneSequence`
-- `questionSets`
+- `customAssets`
+- `introduction`
+- `questionScenes`
+- `result`
 
 これは開発者向けの恒久変更です。通常の演出調整では、管理画面のImportと「ブラウザに保存」を使用してください。
+
+各画面イベントの音響設定は`sequence`内の次の形式で保存されます。
+
+```json
+{
+  "soundAsset": {
+    "bgm": { "assetKey": "bgm_crowded", "loop": true, "volume": 70, "fadeMs": 800 },
+    "se": { "startAssetKey": "", "actionAssetKey": "se_input", "volume": 80 }
+  }
+}
+```
+
+「アセット管理」から登録した音声ファイル本体はJSONへ埋め込まれます。コード内の固定`AUDIO_MANIFEST`を使う場合だけ、`assets/audio/README.md`に従って`assets/audio/`へファイルを配置してください。
 
 ---
 
@@ -197,4 +222,3 @@ ExportしたJSONの以下の項目を、`DEFAULT_APP_CONFIG`の対応箇所へ�
 | `app.js` | 本体起動時の設定読込 |
 | `main.js` | `sceneSequence`に従った画面遷移 |
 | `index.html` | 体験本体 |
-

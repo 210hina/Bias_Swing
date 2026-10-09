@@ -1,128 +1,106 @@
 import { CONTENT } from './content.js';
 
-export const CONFIG_SCHEMA_VERSION = 3;
+export const CONFIG_SCHEMA_VERSION = 5;
 export const CONFIG_STORAGE_KEY = 'rocking-train-config-v1';
 export const PREVIEW_CONFIG_KEY = 'rocking-train-preview-config-v1';
 
-const INFO_LEVELS = new Set([
-  'text_only',
-  'text_and_illustration',
-  'social_statistics',
-]);
-
-export const DEFAULT_APP_CONFIG = Object.freeze({
-  schemaVersion: CONFIG_SCHEMA_VERSION,
-  choiceHoldDurationMs: 2000,
-  sceneSequence: Object.freeze([
-    Object.freeze({
-      id: 'SESSION_START',
-      behavior: 'timed',
-      label: '開始表示',
-      durationMs: 400,
-      backgroundAssetKey: 'train_far_full',
-      title: CONTENT.scenes.sessionStart.title,
-      message: CONTENT.scenes.sessionStart.message,
-    }),
-    Object.freeze({
-      id: 'SCENE_INTRO_FULL',
-      behavior: 'timed',
-      label: '導入：混雑した車内',
-      durationMs: 2000,
-      backgroundAssetKey: 'train_far_full',
-      title: CONTENT.scenes.intro.fullTitle,
-      message: CONTENT.scenes.intro.fullMessage,
-    }),
-    Object.freeze({
-      id: 'SCENE_INTRO_EMPTY',
-      behavior: 'timed',
-      label: '導入：空いた車内',
-      durationMs: 2000,
-      backgroundAssetKey: 'train_far_empty',
-      title: CONTENT.scenes.intro.emptyTitle,
-      message: CONTENT.scenes.intro.emptyMessage,
-    }),
-    Object.freeze({
-      id: 'STAGE_1_INPUT',
-      behavior: 'stage_input',
-      label: 'Stage 1：文字のみ',
-      durationMs: 12000,
-      backgroundAssetKey: 'train_close_full',
-      title: '',
-      message: CONTENT.scenes.stage.inputHint,
-    }),
-    Object.freeze({
-      id: 'STAGE_2_INPUT',
-      behavior: 'stage_input',
-      label: 'Stage 2：ランダム分岐',
-      durationMs: 12000,
-      backgroundAssetKey: 'train_close_full',
-      title: '',
-      message: CONTENT.scenes.stage.inputHint,
-    }),
-    Object.freeze({
-      id: 'SESSION_SUMMARY',
-      behavior: 'summary',
-      label: '総合結果',
-      durationMs: 4000,
-      backgroundAssetKey: 'train_far_empty',
-      title: CONTENT.scenes.summary.title,
-      message: '',
-    }),
-    Object.freeze({
-      id: 'SESSION_END',
-      behavior: 'end',
-      label: '終了表示',
-      durationMs: 4000,
-      backgroundAssetKey: 'train_far_empty',
-      title: CONTENT.scenes.end.title,
-      message: CONTENT.scenes.end.message,
-    }),
-  ]),
-  questionSets: Object.freeze([
-    Object.freeze({
-      id: 'priority_seat_01',
-      label: CONTENT.questionSets.first.label,
-      stages: Object.freeze([
-        Object.freeze({
-          stage: 1,
-          infoLevel: 'text_only',
-          left: Object.freeze({ label: CONTENT.passengers.woman20.label }),
-          right: Object.freeze({ label: CONTENT.passengers.man70.label }),
-        }),
-        Object.freeze({
-          stage: 2,
-          selectionMode: 'random',
-          variants: Object.freeze([
-            Object.freeze({
-              id: 'illustration',
-              label: '2α：イラスト情報',
-              infoLevel: 'text_and_illustration',
-              left: Object.freeze({
-                label: CONTENT.passengers.woman20.label,
-                assetKey: 'char_20f',
-              }),
-              right: Object.freeze({
-                label: CONTENT.passengers.man70.label,
-                assetKey: 'char_70m',
-              }),
-            }),
-            Object.freeze({
-              id: 'social_statistics',
-              label: '2β：他者の選択率',
-              infoLevel: 'social_statistics',
-              left: Object.freeze({ label: CONTENT.passengers.woman20.label }),
-              right: Object.freeze({ label: CONTENT.passengers.man70.label }),
-            }),
-          ]),
-        }),
-      ]),
-    }),
-  ]),
-});
+const INFO_LEVELS = new Set(['text_only', 'text_and_illustration', 'text_and_stats']);
+const PRESENTATION_TYPES = new Set(['random', 'text_and_illustration', 'text_and_stats']);
+const SCENE_BEHAVIORS = new Set(['timed', 'stage_input', 'summary', 'end']);
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
+
+function defaultSoundAsset() {
+  return {
+    bgm: { assetKey: '', loop: true, volume: 70, fadeMs: 800 },
+    se: { startAssetKey: '', actionAssetKey: '', volume: 80 },
+  };
+}
+
+function timedScene(id, label, durationMs, backgroundAssetKey, title, message, behavior = 'timed') {
+  return {
+    id,
+    behavior,
+    label,
+    durationMs,
+    backgroundAssetKey,
+    backgroundImageName: '',
+    backgroundImageSrc: '',
+    title,
+    message,
+    soundAsset: defaultSoundAsset(),
+  };
+}
+
+const DEFAULT_QUESTION_SET = {
+  id: 'priority_seat_01',
+  label: CONTENT.questionSets.first.label,
+  stages: [
+    {
+      stage: 1,
+      infoLevel: 'text_only',
+      left: { label: CONTENT.passengers.woman20.label },
+      right: { label: CONTENT.passengers.man70.label },
+    },
+    {
+      stage: 2,
+      presentationType: 'random',
+      variants: [
+        {
+          id: 'illustration',
+          label: '2α：イラスト情報',
+          infoLevel: 'text_and_illustration',
+          left: { label: CONTENT.passengers.woman20.label, assetKey: 'char_20f' },
+          right: { label: CONTENT.passengers.man70.label, assetKey: 'char_70m' },
+        },
+        {
+          id: 'text_and_stats',
+          label: '2β：他者の選択率',
+          infoLevel: 'text_and_stats',
+          left: { label: CONTENT.passengers.woman20.label },
+          right: { label: CONTENT.passengers.man70.label },
+          stats: { leftPercent: 45, rightPercent: 55 },
+        },
+      ],
+    },
+  ],
+};
+
+export const DEFAULT_APP_CONFIG = Object.freeze({
+  schemaVersion: CONFIG_SCHEMA_VERSION,
+  customAssets: Object.freeze({
+    images: Object.freeze({}),
+    audio: Object.freeze({}),
+  }),
+  choiceHoldDurationMs: 2000,
+  introduction: Object.freeze({
+    sequence: Object.freeze([
+      timedScene('SESSION_START', '開始表示', 400, 'train_far_full', CONTENT.scenes.sessionStart.title, CONTENT.scenes.sessionStart.message),
+      timedScene('SCENE_INTRO_FULL', '導入：混雑した車内', 2000, 'train_far_full', CONTENT.scenes.intro.fullTitle, CONTENT.scenes.intro.fullMessage),
+      timedScene('SCENE_INTRO_EMPTY', '導入：空いた車内', 2000, 'train_far_empty', CONTENT.scenes.intro.emptyTitle, CONTENT.scenes.intro.emptyMessage),
+    ]),
+  }),
+  questionScenes: Object.freeze([
+    Object.freeze({
+      id: 'question_scene_01',
+      label: 'シーン 1',
+      questionSet: Object.freeze(clone(DEFAULT_QUESTION_SET)),
+      sequence: Object.freeze([
+        timedScene('SCENE_1_STAGE_1_INPUT', 'Stage 1：文字のみ', 12000, 'train_close_full', '', CONTENT.scenes.stage.inputHint, 'stage_input'),
+        timedScene('SCENE_1_STAGE_2_INPUT', 'Stage 2：ランダム分岐', 12000, 'train_close_full', '', CONTENT.scenes.stage.inputHint, 'stage_input'),
+      ]),
+    }),
+  ]),
+  result: Object.freeze({
+    sequence: Object.freeze([
+      timedScene('SESSION_SUMMARY', '総合結果', 4000, 'train_far_empty', CONTENT.scenes.summary.title, '', 'summary'),
+      timedScene('SESSION_END', '終了表示', 4000, 'train_far_empty', CONTENT.scenes.end.title, CONTENT.scenes.end.message, 'end'),
+    ]),
+    diagnosis: Object.freeze(clone(CONTENT.diagnosis)),
+  }),
+});
 
 function finiteMilliseconds(value, fallback, minimum = 0, maximum = 300000) {
   const number = Number(value);
@@ -134,157 +112,317 @@ function finiteMilliseconds(value, fallback, minimum = 0, maximum = 300000) {
 function normalizePassenger(passenger, fallback) {
   const label = String(passenger?.label ?? '').trim() || fallback.label;
   const assetKey = String(passenger?.assetKey ?? '').trim();
-  return assetKey ? { label, assetKey } : { label };
+  const imageName = String(passenger?.imageName ?? '');
+  const imageSrc = typeof passenger?.imageSrc === 'string' && passenger.imageSrc.startsWith('data:image/')
+    ? passenger.imageSrc
+    : '';
+  const normalized = { label };
+  if (assetKey) normalized.assetKey = assetKey;
+  if (imageSrc) {
+    normalized.imageName = imageName;
+    normalized.imageSrc = imageSrc;
+  }
+  return normalized;
 }
 
 function normalizeStageContent(source, fallback, fallbackId = 'variant') {
-  return {
+  const sourceInfoLevel = source?.infoLevel === 'social_statistics'
+    ? 'text_and_stats'
+    : source?.infoLevel;
+  const fallbackInfoLevel = fallback?.infoLevel === 'social_statistics'
+    ? 'text_and_stats'
+    : fallback?.infoLevel;
+  const infoLevel = INFO_LEVELS.has(sourceInfoLevel)
+    ? sourceInfoLevel
+    : fallbackInfoLevel ?? 'text_only';
+  const normalized = {
     id: String(source?.id ?? '').trim() || fallback?.id || fallbackId,
     label: String(source?.label ?? '').trim() || fallback?.label || fallbackId,
-    infoLevel: INFO_LEVELS.has(source?.infoLevel)
-      ? source.infoLevel
-      : fallback?.infoLevel ?? 'text_only',
+    infoLevel,
     left: normalizePassenger(source?.left, fallback?.left ?? { label: '左の乗客' }),
     right: normalizePassenger(source?.right, fallback?.right ?? { label: '右の乗客' }),
   };
+  if (infoLevel === 'text_and_stats') {
+    const leftSource = source?.stats?.leftPercent;
+    const rightSource = source?.stats?.rightPercent;
+    const left = leftSource === '' || leftSource == null ? Number.NaN : Number(leftSource);
+    const right = rightSource === '' || rightSource == null ? Number.NaN : Number(rightSource);
+    normalized.stats = {
+      leftPercent: Number.isFinite(left) ? Math.min(100, Math.max(0, left)) : fallback?.stats?.leftPercent ?? 45,
+      rightPercent: Number.isFinite(right) ? Math.min(100, Math.max(0, right)) : fallback?.stats?.rightPercent ?? 55,
+    };
+  }
+  return normalized;
 }
 
-const SCENE_BEHAVIORS = new Set(['timed', 'stage_input', 'summary', 'end']);
+function normalizeQuestionSet(source, fallback, setIndex) {
+  const sourceStages = Array.isArray(source?.stages) ? source.stages : [];
+  const stages = sourceStages.map((stage, stageIndex) => {
+    const fallbackStage = fallback.stages[Math.min(stageIndex, fallback.stages.length - 1)];
+    const fallbackVariants = Array.isArray(fallbackStage?.variants) ? fallbackStage.variants : [];
+    const sourceVariants = Array.isArray(stage?.variants) ? stage.variants : [];
+    const variants = sourceVariants.map((variant, variantIndex) => normalizeStageContent(
+      variant,
+      fallbackVariants[variantIndex] ?? fallbackVariants[0],
+      `variant_${variantIndex + 1}`,
+    ));
+    if (variants.length) {
+      const requestedPresentation = stage?.presentationType ?? stage?.selectionMode;
+      return {
+        stage: stageIndex + 1,
+        presentationType: PRESENTATION_TYPES.has(requestedPresentation) ? requestedPresentation : 'random',
+        variants,
+      };
+    }
+    const normalized = normalizeStageContent(stage, fallbackStage, `stage_${stageIndex + 1}`);
+    delete normalized.id;
+    delete normalized.label;
+    return { stage: stageIndex + 1, ...normalized };
+  });
+  return {
+    id: String(source?.id ?? '').trim() || `question_set_${setIndex + 1}`,
+    label: String(source?.label ?? '').trim() || `設問セット ${setIndex + 1}`,
+    stages: stages.length ? stages : clone(fallback.stages),
+  };
+}
 
-function legacySceneSequence(candidate, defaults) {
+function normalizeSceneItem(scene, fallback, index, usedIds) {
+  const baseId = String(scene?.id ?? '').trim() || `CUSTOM_SCENE_${index + 1}`;
+  let id = baseId;
+  let suffix = 2;
+  while (usedIds.has(id)) id = `${baseId}_${suffix++}`;
+  usedIds.add(id);
+  const sound = scene?.soundAsset ?? {};
+  const fallbackSound = fallback?.soundAsset ?? defaultSoundAsset();
+  const sourceBgm = typeof sound.bgm === 'string' ? { assetKey: sound.bgm } : sound.bgm ?? {};
+  const sourceSe = typeof sound.se === 'string' ? { startAssetKey: sound.se } : sound.se ?? {};
+  const fallbackBgm = typeof fallbackSound.bgm === 'string'
+    ? { assetKey: fallbackSound.bgm }
+    : fallbackSound.bgm ?? {};
+  const fallbackSe = typeof fallbackSound.se === 'string'
+    ? { startAssetKey: fallbackSound.se }
+    : fallbackSound.se ?? {};
+  const behavior = SCENE_BEHAVIORS.has(scene?.behavior) ? scene.behavior : fallback?.behavior ?? 'timed';
+  const rawMessage = String(scene?.message ?? '');
+  const message = behavior === 'stage_input' && rawMessage.trim() === '← 左　・　↓ 自分　・　→ 右'
+    ? ''
+    : rawMessage;
+  return {
+    id,
+    behavior,
+    label: String(scene?.label ?? '').trim() || `シーン ${index + 1}`,
+    durationMs: finiteMilliseconds(scene?.durationMs, fallback?.durationMs ?? 2000),
+    backgroundAssetKey: String(scene?.backgroundAssetKey ?? '').trim() || fallback?.backgroundAssetKey || 'train_far_full',
+    backgroundImageName: String(scene?.backgroundImageName ?? ''),
+    backgroundImageSrc:
+      typeof scene?.backgroundImageSrc === 'string' && scene.backgroundImageSrc.startsWith('data:image/')
+        ? scene.backgroundImageSrc
+        : '',
+    title: String(scene?.title ?? ''),
+    message,
+    soundAsset: {
+      bgm: {
+        assetKey: String(sourceBgm.assetKey ?? ''),
+        loop: sourceBgm.loop === undefined ? fallbackBgm.loop !== false : Boolean(sourceBgm.loop),
+        volume: finiteMilliseconds(sourceBgm.volume, fallbackBgm.volume ?? 70, 0, 100),
+        fadeMs: finiteMilliseconds(sourceBgm.fadeMs, fallbackBgm.fadeMs ?? 800, 0, 30000),
+      },
+      se: {
+        startAssetKey: String(sourceSe.startAssetKey ?? ''),
+        actionAssetKey: String(sourceSe.actionAssetKey ?? ''),
+        volume: finiteMilliseconds(sourceSe.volume, fallbackSe.volume ?? 80, 0, 100),
+      },
+    },
+  };
+}
+
+function normalizeSequence(source, fallback, usedIds) {
+  const list = Array.isArray(source) ? source : (fallback ?? []);
+  return list.map((scene, index) => normalizeSceneItem(
+    scene,
+    fallback?.[Math.min(index, Math.max(0, fallback.length - 1))],
+    index,
+    usedIds,
+  ));
+}
+
+function normalizeDiagnosis(source = {}) {
+  const fallback = CONTENT.diagnosis;
+  return Object.fromEntries(['empty', 'intuitive', 'balanced', 'thoughtful'].map((key) => [
+    key,
+    {
+      title: String(source?.[key]?.title ?? fallback[key].title),
+      message: String(source?.[key]?.message ?? fallback[key].message),
+    },
+  ]));
+}
+
+function normalizeAssetKey(value) {
+  return String(value ?? '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+function normalizeCustomAssets(source = {}) {
+  const images = {};
+  Object.entries(source?.images ?? {}).forEach(([rawKey, asset]) => {
+    const key = normalizeAssetKey(rawKey);
+    const src = typeof asset?.src === 'string' && asset.src.startsWith('data:image/')
+      ? asset.src
+      : '';
+    if (!key || !src || images[key]) return;
+    images[key] = {
+      type: 'image',
+      fileName: String(asset?.fileName ?? asset?.label ?? '').trim() || key,
+      src,
+    };
+  });
+
+  const audio = {};
+  Object.entries(source?.audio ?? {}).forEach(([rawKey, asset]) => {
+    const key = normalizeAssetKey(rawKey);
+    const src = typeof asset?.src === 'string' && asset.src.startsWith('data:audio/')
+      ? asset.src
+      : '';
+    if (!key || !src || audio[key]) return;
+    audio[key] = {
+      kind: asset?.kind === 'se' ? 'se' : 'bgm',
+      fileName: String(asset?.fileName ?? asset?.label ?? '').trim() || key,
+      src,
+    };
+  });
+  return { images, audio };
+}
+
+function legacyDurationsToSequence(candidate, defaults) {
   const durations = candidate?.durations ?? {};
   const legacyIntro = Number(durations.sceneIntro);
   const introHalf = Number.isFinite(legacyIntro) ? legacyIntro / 2 : null;
+  const allDefaults = [
+    ...defaults.introduction.sequence,
+    ...defaults.questionScenes[0].sequence,
+    ...defaults.result.sequence,
+  ];
   const durationMap = {
     SESSION_START: durations.sessionStart,
     SCENE_INTRO_FULL: durations.sceneIntroCrowded ?? introHalf,
     SCENE_INTRO_EMPTY: durations.sceneIntroEmpty ?? introHalf,
-    STAGE_1_INPUT: durations.stageWaitInput,
-    STAGE_2_INPUT: durations.stageWaitInput,
+    SCENE_1_STAGE_1_INPUT: durations.stageWaitInput,
+    SCENE_1_STAGE_2_INPUT: durations.stageWaitInput,
     SESSION_SUMMARY: durations.sessionSummary,
     SESSION_END: durations.sessionEnd,
   };
-  return defaults.map((scene) => ({
-    ...scene,
+  return allDefaults.map((scene) => ({
+    ...clone(scene),
     durationMs: finiteMilliseconds(durationMap[scene.id], scene.durationMs),
   }));
 }
 
-function normalizeSceneSequence(candidate, defaults) {
-  const source = Array.isArray(candidate?.sceneSequence) && candidate.sceneSequence.length
+function migrateLegacyConfig(candidate, defaults) {
+  const legacyQuestionSets = Array.isArray(candidate?.questionSets) && candidate.questionSets.length
+    ? candidate.questionSets
+    : [defaults.questionScenes[0].questionSet];
+  const legacySequence = Array.isArray(candidate?.sceneSequence) && candidate.sceneSequence.length
     ? candidate.sceneSequence
-    : legacySceneSequence(candidate, defaults);
-  const usedIds = new Set();
-  return source.map((scene, index) => {
-    const fallback = defaults[Math.min(index, defaults.length - 1)] ?? defaults[0];
-    const baseId = String(scene?.id ?? '').trim() || `CUSTOM_SCENE_${index + 1}`;
-    let id = baseId;
-    let suffix = 2;
-    while (usedIds.has(id)) id = `${baseId}_${suffix++}`;
-    usedIds.add(id);
+    : legacyDurationsToSequence(candidate, defaults);
+  const firstInput = legacySequence.findIndex((scene) => scene.behavior === 'stage_input');
+  const resultStart = legacySequence.findIndex((scene) => scene.behavior === 'summary' || scene.behavior === 'end');
+  const introEnd = firstInput < 0 ? (resultStart < 0 ? legacySequence.length : resultStart) : firstInput;
+  const middleEnd = resultStart < 0 ? legacySequence.length : resultStart;
+  const introduction = legacySequence.slice(0, introEnd);
+  const middle = legacySequence.slice(introEnd, middleEnd);
+  const result = legacySequence.slice(middleEnd);
+  let cursor = 0;
+  const questionScenes = legacyQuestionSets.map((questionSet, sceneIndex) => {
+    const stageCount = Array.isArray(questionSet.stages) ? questionSet.stages.length : 1;
+    const sequence = [];
+    let consumedInputs = 0;
+    while (cursor < middle.length && consumedInputs < stageCount) {
+      const item = middle[cursor++];
+      sequence.push(item);
+      if (item.behavior === 'stage_input') consumedInputs += 1;
+    }
+    if (sceneIndex === legacyQuestionSets.length - 1) sequence.push(...middle.slice(cursor));
     return {
-      id,
-      behavior: SCENE_BEHAVIORS.has(scene?.behavior) ? scene.behavior : 'timed',
-      label: String(scene?.label ?? '').trim() || `シーン ${index + 1}`,
-      durationMs: finiteMilliseconds(scene?.durationMs, fallback.durationMs),
-      backgroundAssetKey: String(scene?.backgroundAssetKey ?? '').trim() || fallback.backgroundAssetKey,
-      backgroundImageName: String(scene?.backgroundImageName ?? ''),
-      backgroundImageSrc:
-        typeof scene?.backgroundImageSrc === 'string' &&
-        scene.backgroundImageSrc.startsWith('data:image/')
-          ? scene.backgroundImageSrc
-          : '',
-      title: String(scene?.title ?? ''),
-      message: String(scene?.message ?? ''),
+      id: `question_scene_${String(sceneIndex + 1).padStart(2, '0')}`,
+      label: `シーン ${sceneIndex + 1}`,
+      questionSet,
+      sequence,
     };
   });
+  return {
+    schemaVersion: 4,
+    customAssets: candidate?.customAssets,
+    choiceHoldDurationMs: candidate?.choiceHoldDurationMs,
+    introduction: { sequence: introduction },
+    questionScenes,
+    result: { sequence: result, diagnosis: candidate?.diagnosis },
+  };
 }
 
-/** Return a mutable copy suitable for form editing. */
 export function getDefaultConfig() {
   return clone(DEFAULT_APP_CONFIG);
 }
 
-/**
- * Validate imported/stored data and fill every missing value from defaults.
- * This is the single JSON shape consumed by both the app and admin page.
- */
+/** Validate data, migrate v1-v3, and return the editable v4 shape. */
 export function normalizeAppConfig(candidate = {}) {
   const defaults = getDefaultConfig();
-  const candidateSets = Array.isArray(candidate?.questionSets)
-    ? candidate.questionSets
-    : [];
-  const usedSetIds = new Set();
-  const questionSets = candidateSets.map((questionSet, setIndex) => {
-    const fallbackSet = defaults.questionSets[0];
-    const candidateStages = Array.isArray(questionSet?.stages)
-      ? questionSet.stages
-      : [];
-    const stages = candidateStages.map((stage, stageIndex) => {
-      const fallbackStage = fallbackSet.stages[Math.min(stageIndex, fallbackSet.stages.length - 1)];
-      const fallbackVariants = Array.isArray(fallbackStage?.variants)
-        ? fallbackStage.variants
-        : [];
-      const sourceVariants = Array.isArray(stage?.variants) ? stage.variants : [];
-      // Version 1 stored Stage 2 as a single illustration stage. Upgrade it to
-      // the new 2α / 2β random branch automatically.
-      const variants = sourceVariants.length
-        ? sourceVariants.map((variant, variantIndex) => normalizeStageContent(
-            variant,
-            fallbackVariants[variantIndex] ?? fallbackVariants[0],
-            `variant_${variantIndex + 1}`,
-          ))
-        : Number(candidate?.schemaVersion ?? 1) < 2 && fallbackVariants.length
-          ? fallbackVariants.map((fallbackVariant, variantIndex) => normalizeStageContent(
-              variantIndex === 0
-                ? { ...stage, id: fallbackVariant.id, label: fallbackVariant.label }
-                : {
-                    ...fallbackVariant,
-                    left: { ...fallbackVariant.left, label: stage?.left?.label },
-                    right: { ...fallbackVariant.right, label: stage?.right?.label },
-                  },
-              fallbackVariant,
-              `variant_${variantIndex + 1}`,
-            ))
-          : [];
-
-      if (variants.length) {
-        return {
-          stage: stageIndex + 1,
-          selectionMode: 'random',
-          variants,
-        };
-      }
-
-      const normalized = normalizeStageContent(stage, fallbackStage, `stage_${stageIndex + 1}`);
-      delete normalized.id;
-      delete normalized.label;
-      return { stage: stageIndex + 1, ...normalized };
-    });
-    const baseId = String(questionSet?.id ?? '').trim() || `question_set_${setIndex + 1}`;
+  const source = Number(candidate?.schemaVersion ?? 1) >= 4 && candidate?.introduction
+    ? candidate
+    : migrateLegacyConfig(candidate, defaults);
+  const usedSceneIds = new Set();
+  const usedGroupIds = new Set();
+  const usedQuestionSetIds = new Set();
+  const sourceQuestionScenes = Array.isArray(source.questionScenes) && source.questionScenes.length
+    ? source.questionScenes
+    : defaults.questionScenes;
+  const questionScenes = sourceQuestionScenes.map((questionScene, index) => {
+    const fallback = defaults.questionScenes[0];
+    const baseId = String(questionScene?.id ?? '').trim() || `question_scene_${index + 1}`;
     let id = baseId;
     let suffix = 2;
-    while (usedSetIds.has(id)) id = `${baseId}_${suffix++}`;
-    usedSetIds.add(id);
+    while (usedGroupIds.has(id)) id = `${baseId}_${suffix++}`;
+    usedGroupIds.add(id);
+    const questionSet = normalizeQuestionSet(questionScene?.questionSet, fallback.questionSet, index);
+    const questionSetBaseId = questionSet.id;
+    let questionSetSuffix = 2;
+    while (usedQuestionSetIds.has(questionSet.id)) {
+      questionSet.id = `${questionSetBaseId}_${questionSetSuffix++}`;
+    }
+    usedQuestionSetIds.add(questionSet.id);
     return {
       id,
-      label: String(questionSet?.label ?? '').trim() || `設問セット ${setIndex + 1}`,
-      stages: stages.length ? stages : clone(fallbackSet.stages),
+      label: String(questionScene?.label ?? '').trim() || `シーン ${index + 1}`,
+      questionSet,
+      sequence: normalizeSequence(questionScene?.sequence, fallback.sequence, usedSceneIds),
     };
   });
-
-  const normalizedQuestionSets = questionSets.length ? questionSets : defaults.questionSets;
-
   return {
     schemaVersion: CONFIG_SCHEMA_VERSION,
-    sceneSequence: normalizeSceneSequence(candidate, defaults.sceneSequence),
-    choiceHoldDurationMs: finiteMilliseconds(
-      candidate?.choiceHoldDurationMs,
-      defaults.choiceHoldDurationMs,
-      100,
-      30000,
-    ),
-    questionSets: normalizedQuestionSets,
+    customAssets: normalizeCustomAssets(source?.customAssets),
+    choiceHoldDurationMs: finiteMilliseconds(source?.choiceHoldDurationMs, defaults.choiceHoldDurationMs, 100, 30000),
+    introduction: {
+      sequence: normalizeSequence(source?.introduction?.sequence, defaults.introduction.sequence, usedSceneIds),
+    },
+    questionScenes,
+    result: {
+      sequence: normalizeSequence(source?.result?.sequence, defaults.result.sequence, usedSceneIds),
+      diagnosis: normalizeDiagnosis(source?.result?.diagnosis),
+    },
+  };
+}
+
+/** Convert grouped editor data into the flat shape consumed by SceneManager. */
+export function buildRuntimeConfig(config) {
+  const normalized = normalizeAppConfig(config);
+  return {
+    sceneSequence: [
+      ...normalized.introduction.sequence,
+      ...normalized.questionScenes.flatMap((scene) => scene.sequence),
+      ...normalized.result.sequence,
+    ],
+    questionSets: normalized.questionScenes.map((scene) => scene.questionSet),
+    choiceHoldDurationMs: normalized.choiceHoldDurationMs,
+    diagnosis: normalized.result.diagnosis,
+    customAssets: normalized.customAssets,
   };
 }
 

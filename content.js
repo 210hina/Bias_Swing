@@ -43,12 +43,6 @@ export const CONTENT = {
     rightShort: '右',
   },
 
-  inputIndicator: {
-    ariaLabel: 'キー操作のヒント',
-    title: 'デバッグ入力',
-    holdHint: '人物ボタンまたは ← / → を2秒間ホールドして確定',
-  },
-
   choicePrompt: {
     ariaLabel: '座席を譲る相手の選択',
   },
@@ -111,9 +105,7 @@ export const CONTENT = {
     },
     stage: {
       questionSetPrefix: '左右の人、どちらに席を譲る？',
-      titleSeparator: ' ',
-      titlePrefix: ' ',
-      inputHint: '← 左　・　↓ 自分　・　→ 右',
+      inputHint: '',
     },
     // hesitation: {
     //   title: '本当にその選択ですか？',
