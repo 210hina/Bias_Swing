@@ -11,12 +11,7 @@ import { ASSET_MANIFEST, AUDIO_MANIFEST } from './main.js';
 const BUILTIN_BACKGROUND_ASSET_KEYS = Object.entries(ASSET_MANIFEST)
   .filter(([key, asset]) => asset.type === 'image' && (key.startsWith('bg_') || key.startsWith('train_')))
   .map(([key]) => key);
-const BUILTIN_BGM_ASSET_KEYS = Object.entries(AUDIO_MANIFEST)
-  .filter(([, asset]) => asset.kind === 'bgm')
-  .map(([key]) => key);
-const BUILTIN_SE_ASSET_KEYS = Object.entries(AUDIO_MANIFEST)
-  .filter(([, asset]) => asset.kind === 'se')
-  .map(([key]) => key);
+const PLACEHOLDER_AUDIO_ASSET_KEYS = new Set(Object.keys(AUDIO_MANIFEST));
 const BEHAVIORS = [
   ['timed', '通常演出（時間で次へ）'],
   ['stage_input', '設問を表示（選択入力）'],
@@ -48,6 +43,7 @@ let previewFromCurrentTab = true;
 let previewStartSceneId = null;
 let previewRefreshTimer = null;
 let externalPreviewWindow = null;
+let externalPreviewFromCurrentTab = true;
 let previewMuted = false;
 let draggedTransitionIndex = null;
 let draggedTransitionTabKey = '';
@@ -88,11 +84,30 @@ function illustrationAssetKeys() {
 }
 
 function audioAssetKeys(kind) {
-  const builtin = kind === 'bgm' ? BUILTIN_BGM_ASSET_KEYS : BUILTIN_SE_ASSET_KEYS;
-  return [...builtin, ...Object.entries(customAudio())
+  return Object.entries(customAudio())
     .filter(([, asset]) => asset.kind === kind)
-    .map(([key]) => key)];
+    .map(([key]) => key);
 }
+
+function clearPlaceholderAudioReferences(candidate = config) {
+  const sequences = [
+    candidate.introduction?.sequence ?? [],
+    ...(candidate.questionScenes ?? []).map((scene) => scene.sequence ?? []),
+    candidate.result?.sequence ?? [],
+  ];
+  sequences.flat().forEach((scene) => {
+    if (PLACEHOLDER_AUDIO_ASSET_KEYS.has(scene.soundAsset?.bgm?.assetKey)) {
+      scene.soundAsset.bgm.assetKey = '';
+    }
+    ['startAssetKey', 'actionAssetKey'].forEach((field) => {
+      if (PLACEHOLDER_AUDIO_ASSET_KEYS.has(scene.soundAsset?.se?.[field])) {
+        scene.soundAsset.se[field] = '';
+      }
+    });
+  });
+}
+
+clearPlaceholderAudioReferences();
 
 function el(tag, options = {}) {
   const node = document.createElement(tag);
@@ -190,8 +205,10 @@ function setStagePresentation(questionScene, stageIndex, presentationType) {
       illustration.right = { ...illustration.right, ...current.right };
     }
     const statistics = replacement.variants.find((variant) => variant.infoLevel === 'text_and_stats');
-    if (current.infoLevel === 'text_and_stats' && statistics && current.stats) {
-      statistics.stats = { ...current.stats };
+    if (current.infoLevel === 'text_and_stats' && statistics) {
+      statistics.left = { ...statistics.left, ...current.left };
+      statistics.right = { ...statistics.right, ...current.right };
+      if (current.stats) statistics.stats = { ...current.stats };
     }
     replacement.presentationType = 'random';
     replacement.stage = stageIndex + 1;
@@ -223,6 +240,8 @@ function setStagePresentation(questionScene, stageIndex, presentationType) {
     current.right.assetKey ||= 'char_70m';
     delete current.stats;
   } else if (presentationType === 'text_and_stats') {
+    current.left.assetKey ||= 'char_20f';
+    current.right.assetKey ||= 'char_70m';
     current.stats ??= { leftPercent: 45, rightPercent: 55 };
   }
 }
@@ -275,8 +294,8 @@ function imageAssetField(label, value, dataset = {}) {
   return wrap;
 }
 
-function audioAssetField(label, value, keys, dataset) {
-  const wrap = el('div', { className: 'field' });
+function audioAssetField(label, value, keys, dataset, kind) {
+  const wrap = el('div', { className: 'field audio-asset-field' });
   wrap.append(el('label', { text: label }));
   const select = el('select');
   Object.assign(select.dataset, dataset);
@@ -286,7 +305,18 @@ function audioAssetField(label, value, keys, dataset) {
     const option = el('option', { text: audioFileName(key) });
     option.value = key; option.selected = value === key; select.append(option);
   });
-  wrap.append(select);
+  const uploadLabel = el('label', {
+    className: 'audio-asset-field__upload-label',
+    text: 'ローカルPCから音素材を追加',
+  });
+  const upload = el('input');
+  upload.type = 'file';
+  upload.accept = 'audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/aac,.mp3,.wav,.ogg,.m4a,.aac';
+  upload.dataset.sceneAudioUpload = 'true';
+  upload.dataset.transitionIndex = dataset.transitionIndex;
+  upload.dataset.audioTargetField = dataset.soundField;
+  upload.dataset.audioKind = kind;
+  wrap.append(select, uploadLabel, upload);
   return wrap;
 }
 
@@ -316,12 +346,12 @@ function renderAudioSettings(scene, transitionIndex) {
   loopInput.type = 'checkbox'; loopInput.checked = sound.bgm.loop; Object.assign(loopInput.dataset, data('bgm.loop'));
   loop.append(loopInput, el('span', { text: 'BGMをループ再生' }));
   grid.append(
-    audioAssetField('開始時BGM', sound.bgm.assetKey, audioAssetKeys('bgm'), data('bgm.assetKey')),
+    audioAssetField('開始時BGM', sound.bgm.assetKey, audioAssetKeys('bgm'), data('bgm.assetKey'), 'bgm'),
     loop,
     audioNumberField('BGM音量', sound.bgm.volume, 0, 100, 1, data('bgm.volume'), '%'),
     audioNumberField('クロスフェード', sound.bgm.fadeMs, 0, 10000, 100, data('bgm.fadeMs'), 'ms'),
-    audioAssetField('開始時SE', sound.se.startAssetKey, audioAssetKeys('se'), data('se.startAssetKey')),
-    audioAssetField('選択・アクション時SE', sound.se.actionAssetKey, audioAssetKeys('se'), data('se.actionAssetKey')),
+    audioAssetField('開始時SE', sound.se.startAssetKey, audioAssetKeys('se'), data('se.startAssetKey'), 'se'),
+    audioAssetField('選択・アクション時SE', sound.se.actionAssetKey, audioAssetKeys('se'), data('se.actionAssetKey'), 'se'),
     audioNumberField('SE音量', sound.se.volume, 0, 100, 1, data('se.volume'), '%'),
   );
   section.append(grid);
@@ -475,15 +505,39 @@ function renderTransitionCard(scene, index, container) {
   fields.append(uploadWrap);
 
   const duration = el('div', { className: 'field field--wide scene-duration' });
-  duration.append(el('label', { text: '表示時間（ms / 秒）' }));
+  duration.append(el('label', {
+    text: scene.behavior === 'stage_input'
+      ? '迷い度の基準時間（ms / 秒）'
+      : '表示時間（ms / 秒）',
+  }));
+  if (scene.behavior === 'stage_input') {
+    duration.append(el('small', {
+      className: 'scene-duration__note',
+      text: '入力が確定するまで次の画面へ進みません。この時間は迷い度の算出にのみ使用します。',
+    }));
+  } else {
+    const advanceOnInput = el('label', { className: 'scene-advance-on-input' });
+    const checkbox = el('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = Boolean(scene.advanceOnInput);
+    checkbox.dataset.transitionField = 'advanceOnInput';
+    checkbox.dataset.transitionIndex = index;
+    advanceOnInput.append(checkbox, el('span', { text: '矢印キー入力で次に進む' }));
+    duration.append(advanceOnInput);
+  }
   const controls = el('div', { className: 'scene-duration__controls' });
   const range = el('input');
   range.type = 'range'; range.min = '0'; range.max = '30000'; range.step = '100'; range.value = scene.durationMs;
+  range.disabled = Boolean(scene.advanceOnInput);
   range.dataset.transitionField = 'durationMs'; range.dataset.transitionIndex = index;
   const number = el('input');
   number.type = 'number'; number.min = '0'; number.max = '300000'; number.step = '100'; number.value = scene.durationMs;
+  number.disabled = Boolean(scene.advanceOnInput);
   number.dataset.transitionField = 'durationMs'; number.dataset.transitionIndex = index;
-  const durationText = el('span', { className: 'seconds', text: seconds(scene.durationMs) });
+  const durationText = el('span', {
+    className: 'seconds',
+    text: scene.advanceOnInput ? '入力待ち' : seconds(scene.durationMs),
+  });
   durationText.dataset.transitionSeconds = index;
   controls.append(range, number, durationText); duration.append(controls); fields.append(duration);
   fields.append(
@@ -525,7 +579,7 @@ function renderStageContent(container, content, stageIndex, variantIndex = null)
     field('左：乗客ラベル', content.left.label, data('left.label')),
     field('右：乗客ラベル', content.right.label, data('right.label')),
   );
-  if (content.infoLevel === 'text_and_illustration') {
+  if (['text_and_illustration', 'text_and_stats'].includes(content.infoLevel)) {
     container.append(
       imageAssetField('左：イラスト画像（ファイル名）', content.left.assetKey, data('left.assetKey')),
       imageAssetField('右：イラスト画像（ファイル名）', content.right.assetKey, data('right.assetKey')),
@@ -820,7 +874,14 @@ function renderTimeline() {
     const item = el('button', { type: 'button', className: 'timeline__item' });
     item.dataset.state = scene.id; item.dataset.sceneIndex = index; item.dataset.startSceneId = scene.id;
     item.title = `${scene.label || scene.id}からプレビューを開始`;
-    item.append(el('strong', { text: scene.label || scene.id }), el('span', { text: seconds(scene.durationMs) }));
+    item.append(
+      el('strong', { text: scene.label || scene.id }),
+      el('span', {
+        text: scene.behavior === 'stage_input' || scene.advanceOnInput
+          ? '入力待ち'
+          : seconds(scene.durationMs),
+      }),
+    );
     timeline.append(item);
   });
   scheduleLivePreview();
@@ -832,6 +893,7 @@ function renderAll() {
 
 function normalizeAndRender() {
   config = normalizeAppConfig(config);
+  clearPlaceholderAudioReferences();
   synchronizeAllQuestionStages();
   if (activeTab.type === 'question') activeTab.index = Math.min(activeTab.index, config.questionScenes.length - 1);
   renderAll();
@@ -842,6 +904,7 @@ function createTransition(behavior = 'timed', label = '追加画面') {
   return {
     id: `CUSTOM_${suffix}`,
     behavior,
+    advanceOnInput: false,
     label,
     durationMs: behavior === 'stage_input' ? 12000 : 2000,
     backgroundAssetKey: behavior === 'stage_input' ? 'train_close_full' : 'train_far_full',
@@ -950,13 +1013,18 @@ tabEditor.addEventListener('input', (event) => {
       }
       renumberStages(questionScene);
     }
-    scene[key] = key === 'durationMs' ? Math.max(0, Number(input.value) || 0) : input.value;
+    scene[key] = key === 'durationMs'
+      ? Math.max(0, Number(input.value) || 0)
+      : input.type === 'checkbox'
+        ? input.checked
+        : input.value;
+    if (key === 'behavior' && scene.behavior === 'stage_input') scene.advanceOnInput = false;
     if (key === 'backgroundAssetKey') { scene.backgroundImageName = ''; scene.backgroundImageSrc = ''; renderEditor(); }
     if (key === 'durationMs') {
       tabEditor.querySelectorAll(`[data-transition-index="${index}"][data-transition-field="durationMs"]`).forEach((peer) => { if (peer !== input) peer.value = scene.durationMs; });
       tabEditor.querySelector(`[data-transition-seconds="${index}"]`).textContent = seconds(scene.durationMs);
     }
-    if (key === 'behavior') renderEditor();
+    if (key === 'behavior' || key === 'advanceOnInput') renderEditor();
     renderTimeline(); return;
   }
   if (activeTab.type !== 'question' && !input.dataset.diagnosisKey) return;
@@ -1196,6 +1264,35 @@ tabEditor.addEventListener('click', (event) => {
 
 tabEditor.addEventListener('change', (event) => {
   const input = event.target;
+  if (input.dataset.sceneAudioUpload) {
+    const scene = activeSequence()[Number(input.dataset.transitionIndex)];
+    const file = input.files?.[0];
+    const validFile = file && (
+      file.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)$/i.test(file.name)
+    );
+    if (!scene || !validFile) {
+      announce('対応する音声ファイルを選択してください。', true);
+      return;
+    }
+    const key = createUniqueAssetKey('audio', file.name);
+    const [group, field] = input.dataset.audioTargetField.split('.');
+    fileAsDataUrl(file).then((src) => {
+      config.customAssets.audio[key] = {
+        kind: input.dataset.audioKind === 'bgm' ? 'bgm' : 'se',
+        fileName: file.name,
+        src,
+      };
+      scene.soundAsset[group][field] = key;
+      renderEditor();
+      scheduleLivePreview();
+      announce(
+        file.size > 2_500_000
+          ? `${file.name}を登録・設定しました。容量が大きいため、保存にはJSON Exportを推奨します。`
+          : `${file.name}を登録し、この画面イベントへ設定しました。`,
+      );
+    }).catch((error) => announce(`音声ファイルを読み込めませんでした: ${error.message}`, true));
+    return;
+  }
   if (input.dataset.stageIllustrationUpload) {
     const content = stageContentFromDataset(input.dataset);
     const passenger = content?.[input.dataset.passengerSide];
@@ -1287,7 +1384,12 @@ timeline.addEventListener('click', (event) => {
   announce(`${item.querySelector('strong')?.textContent ?? '選択画面'}からプレビューを開始しました。`);
 });
 document.querySelector('#open-preview').addEventListener('click', () => {
-  externalPreviewWindow = window.open(preparePreview(true), 'rocking-train-preview', 'width=1280,height=800');
+  externalPreviewFromCurrentTab = previewFromCurrentTab;
+  externalPreviewWindow = window.open(
+    preparePreview(externalPreviewFromCurrentTab),
+    'rocking-train-preview',
+    'width=1280,height=800',
+  );
 });
 document.querySelector('#toggle-preview-audio').addEventListener('click', (event) => {
   previewMuted = !previewMuted;
@@ -1331,13 +1433,18 @@ document.querySelector('#import-config').addEventListener('change', async (event
 window.addEventListener('message', (event) => {
   if (event.data?.type === 'rocking-train-preview-ready') {
     if (event.source === previewFrame.contentWindow) sendPreviewConfig(event.source, previewFromCurrentTab);
-    else if (event.source === externalPreviewWindow) sendPreviewConfig(event.source, true);
+    else if (event.source === externalPreviewWindow) {
+      sendPreviewConfig(event.source, externalPreviewFromCurrentTab);
+    }
     return;
   }
   if (event.source !== previewFrame.contentWindow || event.data?.type !== 'rocking-train-preview-state') return;
   const { value, context } = event.data.snapshot;
   timeline.querySelectorAll('.timeline__item').forEach((item) => {
-    let active = item.dataset.state === value;
+    const activeState = value === 'STAGE_SELECTION_FEEDBACK'
+      ? context.currentScene?.id
+      : value;
+    let active = item.dataset.state === activeState;
     if (active && item.dataset.sceneIndex !== undefined) active = Number(item.dataset.sceneIndex) === context.sceneIndex;
     item.classList.toggle('is-active', active);
     if (active) item.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });

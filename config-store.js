@@ -1,6 +1,6 @@
 import { CONTENT } from './content.js';
 
-export const CONFIG_SCHEMA_VERSION = 5;
+export const CONFIG_SCHEMA_VERSION = 6;
 export const CONFIG_STORAGE_KEY = 'rocking-train-config-v1';
 export const PREVIEW_CONFIG_KEY = 'rocking-train-preview-config-v1';
 
@@ -19,10 +19,20 @@ function defaultSoundAsset() {
   };
 }
 
-function timedScene(id, label, durationMs, backgroundAssetKey, title, message, behavior = 'timed') {
+function timedScene(
+  id,
+  label,
+  durationMs,
+  backgroundAssetKey,
+  title,
+  message,
+  behavior = 'timed',
+  advanceOnInput = false,
+) {
   return {
     id,
     behavior,
+    advanceOnInput,
     label,
     durationMs,
     backgroundAssetKey,
@@ -59,8 +69,8 @@ const DEFAULT_QUESTION_SET = {
           id: 'text_and_stats',
           label: '2β：他者の選択率',
           infoLevel: 'text_and_stats',
-          left: { label: CONTENT.passengers.woman20.label },
-          right: { label: CONTENT.passengers.man70.label },
+          left: { label: CONTENT.passengers.woman20.label, assetKey: 'char_20f' },
+          right: { label: CONTENT.passengers.man70.label, assetKey: 'char_70m' },
           stats: { leftPercent: 45, rightPercent: 55 },
         },
       ],
@@ -95,7 +105,7 @@ export const DEFAULT_APP_CONFIG = Object.freeze({
   ]),
   result: Object.freeze({
     sequence: Object.freeze([
-      timedScene('SESSION_SUMMARY', '総合結果', 4000, 'train_far_empty', CONTENT.scenes.summary.title, '', 'summary'),
+      timedScene('SESSION_SUMMARY', '総合結果', 4000, 'train_far_empty', CONTENT.scenes.summary.title, '', 'summary', true),
       timedScene('SESSION_END', '終了表示', 4000, 'train_far_empty', CONTENT.scenes.end.title, CONTENT.scenes.end.message, 'end'),
     ]),
     diagnosis: Object.freeze(clone(CONTENT.diagnosis)),
@@ -111,13 +121,14 @@ function finiteMilliseconds(value, fallback, minimum = 0, maximum = 300000) {
 
 function normalizePassenger(passenger, fallback) {
   const label = String(passenger?.label ?? '').trim() || fallback.label;
-  const assetKey = String(passenger?.assetKey ?? '').trim();
+  const hasAssetKey = Object.prototype.hasOwnProperty.call(passenger ?? {}, 'assetKey');
+  const assetKey = String(hasAssetKey ? passenger.assetKey : fallback?.assetKey ?? '').trim();
   const imageName = String(passenger?.imageName ?? '');
   const imageSrc = typeof passenger?.imageSrc === 'string' && passenger.imageSrc.startsWith('data:image/')
     ? passenger.imageSrc
     : '';
   const normalized = { label };
-  if (assetKey) normalized.assetKey = assetKey;
+  if (assetKey || hasAssetKey) normalized.assetKey = assetKey;
   if (imageSrc) {
     normalized.imageName = imageName;
     normalized.imageSrc = imageSrc;
@@ -210,6 +221,11 @@ function normalizeSceneItem(scene, fallback, index, usedIds) {
   return {
     id,
     behavior,
+    advanceOnInput: behavior !== 'stage_input' && (
+      scene?.advanceOnInput === undefined
+        ? behavior === 'summary' || Boolean(fallback?.advanceOnInput)
+        : Boolean(scene.advanceOnInput)
+    ),
     label: String(scene?.label ?? '').trim() || `シーン ${index + 1}`,
     durationMs: finiteMilliseconds(scene?.durationMs, fallback?.durationMs ?? 2000),
     backgroundAssetKey: String(scene?.backgroundAssetKey ?? '').trim() || fallback?.backgroundAssetKey || 'train_far_full',
@@ -362,7 +378,7 @@ export function getDefaultConfig() {
   return clone(DEFAULT_APP_CONFIG);
 }
 
-/** Validate data, migrate v1-v3, and return the editable v4 shape. */
+/** Validate data, migrate older formats, and return the current editable shape. */
 export function normalizeAppConfig(candidate = {}) {
   const defaults = getDefaultConfig();
   const source = Number(candidate?.schemaVersion ?? 1) >= 4 && candidate?.introduction

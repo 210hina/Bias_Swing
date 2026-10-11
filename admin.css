@@ -155,6 +155,12 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { outline: 2p
 .scene-config-card.is-selected .scene-config-card__audio-settings { display: grid; }
 .scene-config-card__audio-settings > h4 { margin: 0; color: #171714; }
 .audio-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.audio-asset-field { display: grid; align-content: start; gap: 6px; }
+.audio-asset-field > label:first-child { margin-bottom: 0; }
+.audio-asset-field__upload-label { margin: 2px 0 0 !important; color: var(--muted); font-size: 11px; }
+.audio-asset-field input[type="file"] { width: 100%; color: var(--muted); font-size: 12px; }
+.audio-asset-field input[type="file"]::file-selector-button { margin-right: 8px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; color: #171714; cursor: pointer; }
+.audio-asset-field input[type="file"]::file-selector-button:hover { border-color: var(--accent); background: var(--accent-dark); }
 .audio-loop-field { display: flex; align-items: center; gap: 9px; min-height: 38px; align-self: end; padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; background: #ffffff; color: #171714; font-size: 12px; cursor: pointer; }
 .audio-loop-field input { width: 18px; height: 18px; accent-color: var(--accent); }
 .audio-number-field__controls { display: grid; grid-template-columns: 1fr 92px auto; align-items: center; gap: 8px; }
@@ -174,6 +180,22 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus { outline: 2p
 }
 .scene-config-card__insert-button:hover { background: var(--accent); color: #17110d; }
 .scene-duration__controls { display: grid; grid-template-columns: 1fr 104px 58px; align-items: center; gap: 12px; }
+.scene-duration__note { display: block; margin: -1px 0 8px; color: var(--muted); font-size: 11px; }
+.scene-advance-on-input {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #f7f7f4;
+  color: var(--text);
+  cursor: pointer;
+}
+.scene-advance-on-input input { width: 18px; height: 18px; accent-color: var(--accent); }
+.scene-duration__controls input:disabled { cursor: not-allowed; opacity: .45; }
 .scene-upload { display: grid; align-content: start; gap: 6px; }
 .scene-upload input[type="file"], .illustration-upload input[type="file"] { width: 100%; color: var(--muted); font-size: 12px; }
 .scene-upload input[type="file"]::file-selector-button, .illustration-upload input[type="file"]::file-selector-button { margin-right: 8px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: #ffffff; color: #171714; cursor: pointer; }

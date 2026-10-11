@@ -107,6 +107,9 @@ export const CONTENT = {
       questionSetPrefix: '左右の人、どちらに席を譲る？',
       inputHint: '',
     },
+    selectionFeedback: {
+      selectedSuffix: 'が選択されました。',
+    },
     // hesitation: {
     //   title: '本当にその選択ですか？',
     //   message: '少しだけ考えてみましょう…',

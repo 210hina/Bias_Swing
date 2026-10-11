@@ -161,7 +161,7 @@ config-store.js
 
 ```js
 export const DEFAULT_APP_CONFIG = {
-  schemaVersion: 5,
+  schemaVersion: 6,
   customAssets: { images: {}, audio: {} },
   choiceHoldDurationMs: 2000,
   introduction: { sequence: [/* 導入画面 */] },
@@ -194,13 +194,23 @@ ExportしたJSONの以下の項目を、`DEFAULT_APP_CONFIG`の対応箇所へ�
 ```json
 {
   "soundAsset": {
-    "bgm": { "assetKey": "bgm_crowded", "loop": true, "volume": 70, "fadeMs": 800 },
-    "se": { "startAssetKey": "", "actionAssetKey": "se_input", "volume": 80 }
+    "bgm": { "assetKey": "uploaded_bgm", "loop": true, "volume": 70, "fadeMs": 800 },
+    "se": { "startAssetKey": "", "actionAssetKey": "uploaded_se", "volume": 80 }
   }
 }
 ```
 
-「アセット管理」から登録した音声ファイル本体はJSONへ埋め込まれます。コード内の固定`AUDIO_MANIFEST`を使う場合だけ、`assets/audio/README.md`に従って`assets/audio/`へファイルを配置してください。
+時間ではなく矢印キー入力で次へ進める画面イベントには、同じ`sequence`項目内に次の値が保存されます。
+
+```json
+{
+  "advanceOnInput": true
+}
+```
+
+`true`の間は`durationMs`による自動遷移を行いません。設問画面（`stage_input`）はこの値に関係なく、選択が確定するまで待機します。
+
+「アセット管理」または各画面イベントから登録した音声ファイル本体はJSONへ埋め込まれます。プルダウンには、実際にアップロード済みの音源だけが表示されます。
 
 ---
 

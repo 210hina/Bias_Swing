@@ -375,9 +375,11 @@ body {
   box-sizing: border-box;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  justify-items: center;
   flex: 1 1 auto;
   gap: clamp(0.5rem, 2.5vmin, 2rem);
-  width: min(64rem, 100%);
+  width: min(82rem, 100%);
   min-height: 0;
   max-height: 76vh;
   max-height: 76dvh;
@@ -390,18 +392,23 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: clamp(0.3rem, 1.2vh, 0.75rem);
+  width: min(100%, 38rem, 62vh);
+  width: min(100%, 38rem, 62dvh);
+  aspect-ratio: 1;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-  padding: clamp(0.55rem, 2vmin, 1.4rem);
-  border: 1px solid rgb(255 255 255 / 18%);
-  border-radius: 1.25rem;
-  background: rgb(15 26 35 / 68%);
+  padding: clamp(0.8rem, 2.4vmin, 1.75rem);
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 50%;
+  background: rgb(15 26 35 / 28%);
   color: inherit;
   font: inherit;
-  box-shadow: 0 1rem 2rem rgb(0 0 0 / 20%);
-  backdrop-filter: blur(4px);
+  box-shadow: inset 0 0 3rem rgb(0 0 0 / 8%);
+  backdrop-filter: blur(1.5px);
   text-align: center;
   cursor: pointer;
   touch-action: none;
@@ -449,12 +456,14 @@ body {
 }
 
 .choice-prompt .media-asset {
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  width: 90%;
   min-height: 0;
-  max-height: 48vh;
-  max-height: 48dvh;
+  max-height: none;
+  overflow: visible;
+  border-radius: 0;
   background: transparent;
-  aspect-ratio: 3 / 4;
+  aspect-ratio: auto;
 }
 
 .choice-prompt .media-asset__media {
@@ -464,7 +473,9 @@ body {
 .choice-prompt__label {
   margin: 0;
   flex: 0 0 auto;
-  font-size: clamp(1rem, 2.6vmin, 1.75rem);
+  font-size: clamp(1.35rem, 3.5vmin, 2.35rem);
+  line-height: 1.15;
+  text-shadow: 0 2px 10px rgb(0 0 0 / 82%);
 }
 
 .choice-prompt--text_only .choice-prompt__option {
@@ -473,19 +484,99 @@ body {
 }
 
 .choice-prompt--text_and_stats .choice-prompt__option {
+  width: min(100%, 27rem, 44vh);
+  width: min(100%, 27rem, 44dvh);
+  min-height: 0;
+}
+
+.choice-prompt--text_and_stats .media-asset {
+  width: 86%;
+  max-height: none;
+}
+
+.choice-feedback {
+  display: grid;
+  flex: 1 1 auto;
+  place-items: center;
+  width: min(38rem, 88vw, 66vh);
+  width: min(38rem, 88vw, 66dvh);
+  min-height: 0;
+  padding: clamp(0.75rem, 2vmin, 1.5rem);
+}
+
+.choice-feedback__option {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  min-height: min(9rem, 24vh);
+  gap: clamp(0.4rem, 1.4vh, 0.9rem);
+  width: 100%;
+  aspect-ratio: 1;
+  min-height: 0;
+  padding: clamp(1rem, 2.8vmin, 2rem);
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 32%);
+  border-radius: 50%;
+  background: rgb(15 26 35 / 28%);
+  box-shadow: inset 0 0 3rem rgb(0 0 0 / 8%);
+  backdrop-filter: blur(1.5px);
+  animation: choice-feedback-center 420ms cubic-bezier(.2, .75, .25, 1) both;
+}
+
+.choice-feedback--left .choice-feedback__option {
+  --choice-feedback-start-x: -28vw;
+}
+
+.choice-feedback--right .choice-feedback__option {
+  --choice-feedback-start-x: 28vw;
+}
+
+.choice-feedback--self .choice-feedback__option {
+  --choice-feedback-start-x: 0;
+}
+
+@keyframes choice-feedback-center {
+  from {
+    opacity: 0.55;
+    transform: translateX(var(--choice-feedback-start-x, 0)) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.choice-feedback .media-asset {
+  flex: 1 1 0;
+  width: 90%;
+  min-height: 0;
+  max-height: none;
+  overflow: visible;
+  border-radius: 0;
+  background: transparent;
+  aspect-ratio: auto;
+}
+
+.choice-feedback .media-asset__media {
+  object-fit: contain;
+}
+
+.choice-feedback__label {
+  margin: 0;
+  flex: 0 0 auto;
+  font-size: clamp(1.35rem, 3.5vmin, 2.35rem);
+  line-height: 1.15;
+  text-shadow: 0 2px 10px rgb(0 0 0 / 82%);
 }
 
 .social-statistics {
   grid-column: 1 / -1;
   display: grid;
   gap: clamp(0.3rem, 1vh, 0.6rem);
-  padding: clamp(0.55rem, 1.5vmin, 1rem);
-  border: 1px solid rgb(255 255 255 / 22%);
-  border-radius: 1rem;
-  background: rgb(15 26 35 / 88%);
-  backdrop-filter: blur(6px);
+  padding: clamp(0.25rem, 0.8vmin, 0.55rem) clamp(0.35rem, 1vmin, 0.75rem);
+  background: transparent;
+  text-shadow: 0 2px 8px rgb(0 0 0 / 82%);
 }
 
 .social-statistics h2,
@@ -550,8 +641,8 @@ body {
   transition: width 300ms ease;
 }
 
-.social-statistics__segment--left { background: #f4c75d; }
-.social-statistics__segment--right { background: #8fbfd2; }
+.social-statistics__segment--left { background: #ffffff; }
+.social-statistics__segment--right { background: #8d9297; }
 
 @media (max-width: 40rem) {
   .choice-prompt { gap: 0.5rem; }

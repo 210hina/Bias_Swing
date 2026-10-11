@@ -562,7 +562,7 @@ function createChoiceOption(documentRef, side, passenger, infoLevel, holdControl
   option.addEventListener('pointercancel', cancelHold);
   option.addEventListener('pointerleave', cancelHold);
 
-  if (infoLevel === 'text_and_illustration') {
+  if (['text_and_illustration', 'text_and_stats'].includes(infoLevel)) {
     option.append(MediaAsset({
       assetKey: passenger.assetKey ?? '',
       imageName: passenger.imageName ?? '',
@@ -660,6 +660,61 @@ export function ChoicePrompt(props) {
     ),
   );
   return prompt;
+}
+
+/**
+ * Render only the option that was just selected.
+ *
+ * @param {Object} props
+ * @param {StageInfo} props.stageInfo
+ * @param {Choice} props.choice
+ * @param {AssetManifest} [props.assetManifest]
+ * @param {Document} props.documentRef
+ * @returns {HTMLElement}
+ */
+export function ChoiceSelectionFeedback({
+  stageInfo,
+  choice,
+  assetManifest = ASSET_MANIFEST,
+  documentRef,
+}) {
+  const feedback = documentRef.createElement('section');
+  feedback.className = `choice-feedback choice-feedback--${choice}`;
+  feedback.setAttribute('aria-label', '確定した選択肢');
+
+  const selected = choice === 'left'
+    ? stageInfo.left
+    : choice === 'right'
+      ? stageInfo.right
+      : { label: CONTENT.choices.self };
+  const card = documentRef.createElement('div');
+  card.className = 'choice-feedback__option';
+
+  if (
+    choice !== 'self' &&
+    ['text_and_illustration', 'text_and_stats'].includes(stageInfo.infoLevel)
+  ) {
+    card.append(MediaAsset({
+      assetKey: selected.assetKey ?? '',
+      imageName: selected.imageName ?? '',
+      imageSrc: selected.imageSrc ?? '',
+      assetManifest,
+      documentRef,
+    }));
+  }
+
+  const label = documentRef.createElement('h2');
+  label.className = 'choice-feedback__label';
+  label.textContent = selected.label;
+  card.append(label);
+  feedback.append(card);
+  return feedback;
+}
+
+function selectedChoiceLabel(stageInfo, choice) {
+  if (choice === 'left') return stageInfo.left.label;
+  if (choice === 'right') return stageInfo.right.label;
+  return CONTENT.choices.self;
 }
 
 /**
@@ -1151,6 +1206,7 @@ export const SCENE_STATES = Object.freeze({
   SESSION_START: 'SESSION_START',
   SCENE_INTRO: 'SCENE_INTRO',
   STAGE_WAIT_INPUT: 'STAGE_WAIT_INPUT',
+  STAGE_SELECTION_FEEDBACK: 'STAGE_SELECTION_FEEDBACK',
   // STAGE_HESITATION: 'STAGE_HESITATION', // Currently disabled.
   STAGE_CONFIRM: 'STAGE_CONFIRM',
   SESSION_SUMMARY: 'SESSION_SUMMARY',
@@ -1163,6 +1219,7 @@ export const DEFAULT_SCENE_DURATIONS = Object.freeze({
   sceneIntroEmpty: 2000,
   sceneIntro: 4000,
   stageWaitInput: 12000,
+  selectionFeedback: 1500,
   stageConfirm: 0,
   sessionSummary: 4000,
   sessionEnd: 4000,
@@ -1302,6 +1359,7 @@ export class SceneManager {
     this.activeBackgroundFrame = -1;
     this.setupPersistentLayers();
     this.handleAttractKeyDown = this.handleAttractKeyDown.bind(this);
+    this.handleSceneAdvanceKeyDown = this.handleSceneAdvanceKeyDown.bind(this);
   }
 
   buildStageSequence() {
@@ -1519,6 +1577,7 @@ export class SceneManager {
     }
     if (
       this.state === SCENE_STATES.STAGE_WAIT_INPUT ||
+      this.state === SCENE_STATES.STAGE_SELECTION_FEEDBACK ||
       this.state === SCENE_STATES.STAGE_CONFIRM
     ) {
       return this.updateBackground('train_close_full');
@@ -1537,6 +1596,7 @@ export class SceneManager {
     this.started = true;
     this.audioManager.start(this.windowRef);
     this.windowRef?.addEventListener('keydown', this.handleAttractKeyDown);
+    this.windowRef?.addEventListener('keydown', this.handleSceneAdvanceKeyDown);
     void this.preloadBackgrounds();
     this.enterState(SCENE_STATES.ATTRACT);
   }
@@ -1544,6 +1604,7 @@ export class SceneManager {
   destroy() {
     this.clearStateTimer();
     this.windowRef?.removeEventListener('keydown', this.handleAttractKeyDown);
+    this.windowRef?.removeEventListener('keydown', this.handleSceneAdvanceKeyDown);
     this.audioManager.destroy();
     this.listeners.clear();
     this.started = false;
@@ -1556,7 +1617,9 @@ export class SceneManager {
       context: {
         sceneIndex: this.sceneIndex,
         currentScene: this.activeScene,
-        acceptsChoice: this.activeScene?.behavior === 'stage_input',
+        acceptsChoice:
+          this.activeScene?.behavior === 'stage_input' &&
+          this.state !== SCENE_STATES.STAGE_SELECTION_FEEDBACK,
         stageIndex: this.stageIndex,
         questionSetIndex: (this.currentEntry?.questionSetNumber ?? 1) - 1,
         currentQuestionSet: this.currentEntry?.questionSet ?? null,
@@ -1636,7 +1699,9 @@ export class SceneManager {
     void this.syncBackgroundForState();
     this.render();
     this.notifySnapshot();
-    this.schedule('SEQUENCE_TIMEOUT', scene.durationMs);
+    if (scene.behavior !== 'stage_input' && !scene.advanceOnInput) {
+      this.schedule('SEQUENCE_TIMEOUT', scene.durationMs);
+    }
   }
 
   advanceSequenceScene() {
@@ -1654,6 +1719,10 @@ export class SceneManager {
 
     const scene = this.activeScene;
     if (!scene) return;
+    if (this.state === SCENE_STATES.STAGE_SELECTION_FEEDBACK) {
+      if (event.type === 'SELECTION_FEEDBACK_COMPLETE') this.advanceSequenceScene();
+      return;
+    }
     if (
       event.type === 'CHOICE_HOLD_PROGRESS' &&
       scene.behavior === 'stage_input' &&
@@ -1674,19 +1743,19 @@ export class SceneManager {
           scene.durationMs,
         );
         this.recordPendingChoice();
-        this.advanceSequenceScene();
-      } else if (event.type === 'SEQUENCE_TIMEOUT') {
-        this.pendingChoice = this.defaultChoice;
-        this.pendingSource = 'timeout';
-        this.pendingResponseTimeMs = scene.durationMs;
-        this.pendingHesitationPercent = 100;
-        this.recordPendingChoice();
-        this.advanceSequenceScene();
+        this.clearStateTimer();
+        this.state = SCENE_STATES.STAGE_SELECTION_FEEDBACK;
+        this.render();
+        this.notifySnapshot();
+        this.schedule('SELECTION_FEEDBACK_COMPLETE', this.durations.selectionFeedback);
       }
       return;
     }
 
-    if (event.type === 'SEQUENCE_TIMEOUT') {
+    const shouldAdvance =
+      (event.type === 'SEQUENCE_TIMEOUT' && !scene.advanceOnInput) ||
+      (event.type === 'ADVANCE_SCENE' && scene.advanceOnInput);
+    if (shouldAdvance) {
       if (scene.behavior === 'end') {
         this.sceneIndex = -1;
         this.enterState(SCENE_STATES.ATTRACT);
@@ -1766,12 +1835,11 @@ export class SceneManager {
            * To restore it, re-enable the state and transition here before
            * STAGE_CONFIRM.
            */
-          this.enterState(SCENE_STATES.STAGE_CONFIRM);
-        } else if (event.type === 'INPUT_TIMEOUT') {
-          this.pendingChoice = this.defaultChoice;
-          this.pendingSource = 'timeout';
-          this.pendingResponseTimeMs = this.durations.stageWaitInput;
-          this.pendingHesitationPercent = 100;
+          this.enterState(SCENE_STATES.STAGE_SELECTION_FEEDBACK);
+        }
+        break;
+      case SCENE_STATES.STAGE_SELECTION_FEEDBACK:
+        if (event.type === 'SELECTION_FEEDBACK_COMPLETE') {
           this.enterState(SCENE_STATES.STAGE_CONFIRM);
         }
         break;
@@ -1797,7 +1865,7 @@ export class SceneManager {
         }
         break;
       case SCENE_STATES.SESSION_SUMMARY:
-        if (event.type === 'SUMMARY_TIMEOUT') {
+        if (event.type === 'SUMMARY_TIMEOUT' || event.type === 'SUMMARY_ADVANCE') {
           this.enterState(SCENE_STATES.SESSION_END);
         }
         break;
@@ -1816,6 +1884,31 @@ export class SceneManager {
     ) {
       event.preventDefault();
       this.send({ type: 'START_SESSION' });
+    }
+  }
+
+  handleSceneAdvanceKeyDown(event) {
+    if (
+      event.defaultPrevented ||
+      event.repeat ||
+      !['ArrowLeft', 'ArrowRight', 'ArrowDown'].includes(event.key)
+    ) return;
+
+    if (this.sceneSequence) {
+      const scene = this.activeScene;
+      if (
+        !scene?.advanceOnInput ||
+        scene.behavior === 'stage_input' ||
+        this.state === SCENE_STATES.STAGE_SELECTION_FEEDBACK
+      ) return;
+      event.preventDefault();
+      this.send({ type: 'ADVANCE_SCENE' });
+      return;
+    }
+
+    if (this.state === SCENE_STATES.SESSION_SUMMARY) {
+      event.preventDefault();
+      this.send({ type: 'SUMMARY_ADVANCE' });
     }
   }
 
@@ -1882,10 +1975,9 @@ export class SceneManager {
     const timedTransitions = {
       [SCENE_STATES.SESSION_START]: ['SESSION_READY', this.durations.sessionStart],
       [SCENE_STATES.SCENE_INTRO]: ['INTRO_FRAME_NEXT', this.durations.sceneIntroCrowded],
-      [SCENE_STATES.STAGE_WAIT_INPUT]: ['INPUT_TIMEOUT', this.durations.stageWaitInput],
+      [SCENE_STATES.STAGE_SELECTION_FEEDBACK]: ['SELECTION_FEEDBACK_COMPLETE', this.durations.selectionFeedback],
       // STAGE_HESITATION timer is currently disabled.
       [SCENE_STATES.STAGE_CONFIRM]: ['CHOICE_RECORDED', this.durations.stageConfirm],
-      [SCENE_STATES.SESSION_SUMMARY]: ['SUMMARY_TIMEOUT', this.durations.sessionSummary],
       [SCENE_STATES.SESSION_END]: ['END_TIMEOUT', this.durations.sessionEnd],
     };
     const transition = timedTransitions[nextState];
@@ -1947,7 +2039,24 @@ export class SceneManager {
     const documentRef = this.root.ownerDocument;
     let screen;
 
-    if (scene.behavior === 'stage_input') {
+    if (
+      scene.behavior === 'stage_input' &&
+      this.state === SCENE_STATES.STAGE_SELECTION_FEEDBACK
+    ) {
+      const entry = this.currentEntry;
+      if (!entry || !this.pendingChoice) return;
+      screen = this.createScreen(
+        selectedChoiceLabel(entry.stage, this.pendingChoice) +
+          CONTENT.scenes.selectionFeedback.selectedSuffix,
+        '',
+      );
+      screen.append(ChoiceSelectionFeedback({
+        stageInfo: entry.stage,
+        choice: this.pendingChoice,
+        assetManifest: this.assetManifest,
+        documentRef,
+      }));
+    } else if (scene.behavior === 'stage_input') {
       const entry = this.currentEntry;
       if (!entry) return;
       const defaultTitle = CONTENT.scenes.stage.questionSetPrefix;
@@ -2040,6 +2149,19 @@ export class SceneManager {
           documentRef,
           holdDurationMs: this.choiceHoldDurationMs,
           assetManifest: this.assetManifest,
+        }));
+        break;
+      case SCENE_STATES.STAGE_SELECTION_FEEDBACK:
+        screen = this.createScreen(
+          selectedChoiceLabel(stage, this.pendingChoice ?? this.defaultChoice) +
+            CONTENT.scenes.selectionFeedback.selectedSuffix,
+          '',
+        );
+        screen.append(ChoiceSelectionFeedback({
+          stageInfo: stage,
+          choice: this.pendingChoice ?? this.defaultChoice,
+          assetManifest: this.assetManifest,
+          documentRef,
         }));
         break;
       /*

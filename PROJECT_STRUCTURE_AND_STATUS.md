@@ -53,7 +53,7 @@ RockingTrain_test/
 
 画像がない場合は、登録されているフォールバック表示が使用されます。
 
-`main.js`の`AUDIO_MANIFEST`には次の音源も登録されています。実ファイルは`assets/audio/`へ配置してください。
+`main.js`の`AUDIO_MANIFEST`には次の旧プロトタイプ用スロットが残っていますが、実ファイルがないため管理画面の選択肢には表示しません。
 
 - `bgm_crowded.mp3`
 - `bgm_quiet.mp3`
@@ -61,7 +61,7 @@ RockingTrain_test/
 - `se_hesitation.wav`
 - `se_reveal.mp3`
 
-音源がない場合は無音で進行します。
+管理画面には、実際にアップロード済みの音源だけを表示します。
 
 ---
 
@@ -156,14 +156,14 @@ SceneManager（main.js）
 現在のスキーマバージョン:
 
 ```text
-schemaVersion: 4
+schemaVersion: 6
 ```
 
 概略構造:
 
 ```js
 {
-  schemaVersion: 4,
+  schemaVersion: 6,
   choiceHoldDurationMs: 2000,
   introduction: {
     sequence: [/* 導入画面 */]
@@ -207,7 +207,7 @@ schemaVersion: 4
 | `behavior` | 動作 |
 | --- | --- |
 | `timed` | 指定時間だけ演出画面を表示して次へ進む |
-| `stage_input` | 次のStageを表示し、選択またはタイムアウトを待つ |
+| `stage_input` | 次のStageを表示し、選択が確定するまで待つ |
 | `summary` | 記録した回答から総合結果を表示する |
 | `end` | 終了画面を表示し、時間経過後に待機画面へ戻る |
 
@@ -222,9 +222,9 @@ schemaVersion: 4
 | 1 | `SESSION_START` | 通常演出 | 400ms | `01_train_Far_Full.png` |
 | 2 | `SCENE_INTRO_FULL` | 通常演出 | 2000ms | `01_train_Far_Full.png` |
 | 3 | `SCENE_INTRO_EMPTY` | 通常演出 | 2000ms | `02_train_Far_Empty.png` |
-| 4 | `SCENE_1_STAGE_1_INPUT` | 次の設問 | 12000ms | `03_train_Close_Full.png` |
-| 5 | `SCENE_1_STAGE_2_INPUT` | 次の設問 | 12000ms | `03_train_Close_Full.png` |
-| 6 | `SESSION_SUMMARY` | 総合結果 | 4000ms | `02_train_Far_Empty.png` |
+| 4 | `SCENE_1_STAGE_1_INPUT` | 次の設問 | 入力待ち（迷い度基準12000ms） | `03_train_Close_Full.png` |
+| 5 | `SCENE_1_STAGE_2_INPUT` | 次の設問 | 入力待ち（迷い度基準12000ms） | `03_train_Close_Full.png` |
+| 6 | `SESSION_SUMMARY` | 総合結果 | 矢印キー入力待ち（初期値） | `02_train_Far_Empty.png` |
 | 7 | `SESSION_END` | 終了 | 4000ms | `02_train_Far_Empty.png` |
 
 ### 通常演出の字幕表示
@@ -270,7 +270,9 @@ QuestionSet 1
 
 - `infoLevel: "text_and_stats"`
 - 選択する前に他者の選択率を表示します。
+- 2αと同様に左右の人物イラストを表示し、管理画面から画像を選択・アップロードできます。
 - 左右の割合は管理画面から編集でき、未入力時は左45%、右55%です。
+- 選択率は一本の割合バーで表現し、統計部分には黒い囲い背景を置きません。
 - 統計を見た状態で左右を再選択します。
 
 ### 提示タイプ設定
@@ -295,20 +297,25 @@ sceneSequence[1]
 ...
   ↓
 stage_input
-  ↓ 選択または無操作タイムアウト
+  ↓ 選択確定（無操作では遷移しない）
+選択フィードバック（約1.5秒）
+  ↓ 選んだ人物だけを中央表示
 次のsceneSequence項目
   ↓
 summary
-  ↓
+  ↓ 矢印キー入力（初期値）
 end
   ↓ durationMs
 ATTRACT
 ```
 
+通常の画面イベントも`advanceOnInput: true`に設定すると、`durationMs`ではなく←／→／↓の矢印キー入力を待って次へ進みます。
+
 選択後の「みんなの選択」結果画面は削除されています。
 
 - 選択後は回答をメモリへ記録します。
-- 直後に次のシーンへ進みます。
+- 「○○が選択されました。」と選択した人物だけを約1.5秒表示します。
+- フィードバック演出後に次のシーンへ進みます。
 - 旧`STAGE_REVEAL`は現在の実行経路に存在しません。
 
 `stage_input`シーン1件につき、QuestionSet内の次のStageを1件消費します。
@@ -325,7 +332,7 @@ ATTRACT
 | --- | --- | --- |
 | `←` | 左側の乗客 | 初期値2秒ホールド |
 | `→` | 右側の乗客 | 初期値2秒ホールド |
-| `↓` | 自分が座る | 即時確定 |
+| `↓` | 自分が座る | 初期値2秒ホールド |
 
 ### 画面操作
 
@@ -349,9 +356,9 @@ ATTRACT
 
 ### 迷い度
 
-- 応答時間を入力受付時間に対する割合へ変換します。
+- 応答時間を管理画面で設定した迷い度の基準時間に対する割合へ変換します。
 - 0〜100%へ制限します。
-- 無操作タイムアウトは100%です。
+- 基準時間を超えても入力待機を続け、迷い度は100%のままです。
 
 ### 記録内容
 
@@ -359,7 +366,7 @@ ATTRACT
 - QuestionSet番号
 - Stage番号
 - 左／右／自分の選択
-- 入力またはタイムアウト
+- 入力による確定
 - 応答時間
 - 迷い度
 - Stage 2の分岐ID
@@ -442,7 +449,7 @@ ATTRACT
 - 文字のみ／2α（イラスト）／2β（他者の選択率）／ランダム分岐をイベントごとに選択
 - 左右の乗客ラベル編集
 - 左右の`assetKey`編集
-- 2αの左右イラストのアップロード、サムネイル確認、解除
+- 2α／2βの左右イラストのアップロード、サムネイル確認、解除
 - 2βの左右選択率を編集
 - 画面イベントの削除・動作種別変更・並び替えに設問データが追従
 
@@ -462,7 +469,7 @@ ATTRACT
 - JSON Import
 - Local Storage保存
 - 初期設定への復帰
-- schemaVersion 1〜3から4への旧形式変換
+- 旧schemaVersionからVersion 6への形式変換
 
 ---
 
@@ -503,7 +510,7 @@ Local Storage: rocking-train-config-v1
 
 通常の管理画面プレビューでは、設定とアップロード画像を`postMessage`でiframe／別ウィンドウへ直接送信します。`rocking-train-preview-config-v1`は、管理画面から切り離してプレビューURLを開いた場合の互換フォールバックとして残しています。
 
-キー名の`v1`は互換性維持のため残しています。内部データの現在の`schemaVersion`は4です。
+キー名の`v1`は互換性維持のため残しています。内部データの現在の`schemaVersion`は6です。
 
 JSON反映の具体的な手順は`CONFIG_JSON_GUIDE.md`を参照してください。
 
@@ -525,7 +532,7 @@ JSON反映の具体的な手順は`CONFIG_JSON_GUIDE.md`を参照してくださ
 
 - 他者の選択率の初期値は左45%、右55%
 - Stage 2α／2βの確率は50%ずつ
-- タイムアウト時のデフォルト選択は`self`
+- 選択画面は入力が確定するまで無期限に待機
 
 ### 運用上の注意
 
@@ -534,7 +541,7 @@ JSON反映の具体的な手順は`CONFIG_JSON_GUIDE.md`を参照してくださ
 - Local Storageはブラウザ、ホスト名、ポート番号ごとに別管理です。
 - Data URL画像が大きいとLocal Storage上限を超える可能性があります。
 - ブラウザの自動再生制限により、BGM / SEは最初のクリックまたはキー操作後に有効になります。
-- 音源ファイル未配置時はコンソールへ警告を出し、無音で進行します。
+- BGM / SEプルダウンにはアップロード済み音源だけが表示されます。
 - `assets/README.md`には旧`STAGE_REVEAL`などの記述が一部残っています。本書の内容が現在の実装です。
 
 ### 互換コード
@@ -549,7 +556,7 @@ JSON反映の具体的な手順は`CONFIG_JSON_GUIDE.md`を参照してくださ
 
 - 全JavaScriptファイルの構文確認
 - 設定JSONの正規化
-- schemaVersion 1〜3から4への移行
+- 旧schemaVersionからVersion 6への移行
 - 10設問シーンの正規化とランタイム展開
 - 任意の設問シーンタブからのプレビュー開始
 - 動的シーンの追加順実行
