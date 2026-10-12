@@ -156,22 +156,25 @@ SceneManager（main.js）
 現在のスキーマバージョン:
 
 ```text
-schemaVersion: 6
+schemaVersion: 7
 ```
 
 概略構造:
 
 ```js
 {
-  schemaVersion: 6,
+  schemaVersion: 7,
+  masterBgm: {/* 体験全体 */},
   choiceHoldDurationMs: 2000,
   introduction: {
+    bgm: {/* イントロ全体 */},
     sequence: [/* 導入画面 */]
   },
   questionScenes: [
     {
       id: 'question_scene_01',
       label: 'シーン 1',
+      bgm: {/* このシーン全体 */},
       sequence: [/* このシーン固有の画面遷移 */],
       questionSet: {
         id: 'priority_seat_01',
@@ -438,8 +441,9 @@ ATTRACT
 - ローカル背景画像のアップロード
 - タイトル／本文編集
 - 選択ホールド時間編集
-- 開始時BGM、ループ、音量、クロスフェード時間
-- 開始時SE、選択・アクション時SE、SE音量
+- タブ単位のBGM、ループ、音量、クロスフェード時間
+- 画面イベント単位の開始時SE、選択・アクション時SE、SE音量
+- イントロタブで体験全体に重ねるマスターBGMを設定
 
 選択中のカードはオレンジ色の枠で表示されます。
 
@@ -469,7 +473,7 @@ ATTRACT
 - JSON Import
 - Local Storage保存
 - 初期設定への復帰
-- 旧schemaVersionからVersion 6への形式変換
+- 旧schemaVersionからVersion 7への形式変換
 
 ---
 
@@ -556,7 +560,7 @@ JSON反映の具体的な手順は`CONFIG_JSON_GUIDE.md`を参照してくださ
 
 - 全JavaScriptファイルの構文確認
 - 設定JSONの正規化
-- 旧schemaVersionからVersion 6への移行
+- 旧schemaVersionからVersion 7への移行
 - 10設問シーンの正規化とランタイム展開
 - 任意の設問シーンタブからのプレビュー開始
 - 動的シーンの追加順実行

@@ -96,14 +96,20 @@ function clearPlaceholderAudioReferences(candidate = config) {
     candidate.result?.sequence ?? [],
   ];
   sequences.flat().forEach((scene) => {
-    if (PLACEHOLDER_AUDIO_ASSET_KEYS.has(scene.soundAsset?.bgm?.assetKey)) {
-      scene.soundAsset.bgm.assetKey = '';
-    }
     ['startAssetKey', 'actionAssetKey'].forEach((field) => {
       if (PLACEHOLDER_AUDIO_ASSET_KEYS.has(scene.soundAsset?.se?.[field])) {
         scene.soundAsset.se[field] = '';
       }
     });
+  });
+  const bgms = [
+    candidate.masterBgm,
+    candidate.introduction?.bgm,
+    ...(candidate.questionScenes ?? []).map((scene) => scene.bgm),
+    candidate.result?.bgm,
+  ];
+  bgms.forEach((bgm) => {
+    if (PLACEHOLDER_AUDIO_ASSET_KEYS.has(bgm?.assetKey)) bgm.assetKey = '';
   });
 }
 
@@ -152,6 +158,16 @@ function activeSequence() {
 
 function activeQuestionScene() {
   return activeTab.type === 'question' ? config.questionScenes[activeTab.index] : null;
+}
+
+function activeAudioGroup() {
+  if (activeTab.type === 'intro') return config.introduction;
+  if (activeTab.type === 'result') return config.result;
+  return activeQuestionScene();
+}
+
+function bgmForScope(scope) {
+  return scope === 'master' ? config.masterBgm : activeAudioGroup()?.bgm;
 }
 
 function stageIndexForTransition(transitionIndex, sequence = activeSequence()) {
@@ -312,9 +328,11 @@ function audioAssetField(label, value, keys, dataset, kind) {
   const upload = el('input');
   upload.type = 'file';
   upload.accept = 'audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/aac,.mp3,.wav,.ogg,.m4a,.aac';
-  upload.dataset.sceneAudioUpload = 'true';
-  upload.dataset.transitionIndex = dataset.transitionIndex;
-  upload.dataset.audioTargetField = dataset.soundField;
+  upload.dataset.audioUpload = 'true';
+  if (dataset.transitionIndex !== undefined) upload.dataset.transitionIndex = dataset.transitionIndex;
+  if (dataset.soundField) upload.dataset.audioSoundField = dataset.soundField;
+  if (dataset.bgmScope) upload.dataset.audioBgmScope = dataset.bgmScope;
+  if (dataset.bgmField) upload.dataset.audioBgmField = dataset.bgmField;
   upload.dataset.audioKind = kind;
   wrap.append(select, uploadLabel, upload);
   return wrap;
@@ -338,24 +356,47 @@ function audioNumberField(label, value, min, max, step, dataset, suffix) {
 function renderAudioSettings(scene, transitionIndex) {
   const sound = scene.soundAsset;
   const section = el('section', { className: 'scene-config-card__audio-settings' });
-  section.append(el('h4', { text: 'BGM / SE' }));
+  section.append(el('h4', { text: '画面イベントの効果音（SE）' }));
   const grid = el('div', { className: 'audio-settings-grid' });
   const data = (soundField) => ({ soundField, transitionIndex });
-  const loop = el('label', { className: 'audio-loop-field' });
-  const loopInput = el('input');
-  loopInput.type = 'checkbox'; loopInput.checked = sound.bgm.loop; Object.assign(loopInput.dataset, data('bgm.loop'));
-  loop.append(loopInput, el('span', { text: 'BGMをループ再生' }));
   grid.append(
-    audioAssetField('開始時BGM', sound.bgm.assetKey, audioAssetKeys('bgm'), data('bgm.assetKey'), 'bgm'),
-    loop,
-    audioNumberField('BGM音量', sound.bgm.volume, 0, 100, 1, data('bgm.volume'), '%'),
-    audioNumberField('クロスフェード', sound.bgm.fadeMs, 0, 10000, 100, data('bgm.fadeMs'), 'ms'),
     audioAssetField('開始時SE', sound.se.startAssetKey, audioAssetKeys('se'), data('se.startAssetKey'), 'se'),
     audioAssetField('選択・アクション時SE', sound.se.actionAssetKey, audioAssetKeys('se'), data('se.actionAssetKey'), 'se'),
     audioNumberField('SE音量', sound.se.volume, 0, 100, 1, data('se.volume'), '%'),
   );
   section.append(grid);
   return section;
+}
+
+function renderBgmSettings(container, title, bgm, scope) {
+  const section = el('section', {
+    className: `editor-section audio-scope-settings${scope === 'master' ? ' audio-scope-settings--master' : ''}`,
+  });
+  section.append(
+    el('h3', { text: title }),
+    el('p', {
+      className: 'audio-scope-settings__note',
+      text: scope === 'master'
+        ? 'すべての画面とシーンBGMに重ねて、体験全体を通して再生します。'
+        : 'このタブ内のすべての画面イベントを通して再生し、次のシーンで切り替わります。',
+    }),
+  );
+  const grid = el('div', { className: 'audio-settings-grid' });
+  const data = (bgmField) => ({ bgmScope: scope, bgmField });
+  const loop = el('label', { className: 'audio-loop-field' });
+  const loopInput = el('input');
+  loopInput.type = 'checkbox';
+  loopInput.checked = bgm.loop;
+  Object.assign(loopInput.dataset, data('loop'));
+  loop.append(loopInput, el('span', { text: 'ループ再生' }));
+  grid.append(
+    audioAssetField('BGMファイル', bgm.assetKey, audioAssetKeys('bgm'), data('assetKey'), 'bgm'),
+    loop,
+    audioNumberField('BGM音量', bgm.volume, 0, 100, 1, data('volume'), '%'),
+    audioNumberField('フェード時間', bgm.fadeMs, 0, 10000, 100, data('fadeMs'), 'ms'),
+  );
+  section.append(grid);
+  container.append(section);
 }
 
 function renderTabs() {
@@ -667,13 +708,19 @@ function clearCustomAssetReferences(type, key) {
       .flat()
       .forEach((scene) => {
         const sound = scene.soundAsset;
-        ['assetKey'].forEach((field) => {
-          if (sound?.bgm?.[field] === key) { sound.bgm[field] = ''; count += 1; }
-        });
         ['startAssetKey', 'actionAssetKey'].forEach((field) => {
           if (sound?.se?.[field] === key) { sound.se[field] = ''; count += 1; }
         });
       });
+    const bgms = [
+      config.masterBgm,
+      config.introduction.bgm,
+      ...config.questionScenes.map((scene) => scene.bgm),
+      config.result.bgm,
+    ];
+    bgms.forEach((bgm) => {
+      if (bgm?.assetKey === key) { bgm.assetKey = ''; count += 1; }
+    });
   }
   return count;
 }
@@ -842,11 +889,14 @@ function renderAssetLibrary(container) {
 function renderEditor() {
   tabEditor.replaceChildren();
   if (activeTab.type === 'intro') {
+    renderBgmSettings(tabEditor, 'マスターBGM（体験全体）', config.masterBgm, 'master');
+    renderBgmSettings(tabEditor, 'イントロ全体のBGM', config.introduction.bgm, 'group');
     renderHoldSetting(tabEditor);
     renderSequenceSection(tabEditor, 'イントロダクション画面');
   } else if (activeTab.type === 'assets') {
     renderAssetLibrary(tabEditor);
   } else if (activeTab.type === 'result') {
+    renderBgmSettings(tabEditor, '結果・サマリー全体のBGM', config.result.bgm, 'group');
     renderSequenceSection(tabEditor, '結果・終了画面');
     renderDiagnosis(tabEditor);
   } else {
@@ -859,6 +909,7 @@ function renderEditor() {
       field('タブ名 / シーン名', questionScene.label, { questionField: 'label' }),
     );
     meta.append(fields); tabEditor.append(meta);
+    renderBgmSettings(tabEditor, `${questionScene.label} 全体のBGM`, questionScene.bgm, 'group');
     renderSequenceSection(tabEditor, '画面イベント');
   }
 }
@@ -910,7 +961,6 @@ function createTransition(behavior = 'timed', label = '追加画面') {
     backgroundAssetKey: behavior === 'stage_input' ? 'train_close_full' : 'train_far_full',
     backgroundImageName: '', backgroundImageSrc: '', title: '', message: '',
     soundAsset: {
-      bgm: { assetKey: '', loop: true, volume: 70, fadeMs: 800 },
       se: { startAssetKey: '', actionAssetKey: '', volume: 80 },
     },
   };
@@ -970,6 +1020,25 @@ tabEditor.addEventListener('input', (event) => {
     config.choiceHoldDurationMs = Math.max(100, Number(input.value) || 100);
     tabEditor.querySelectorAll('[data-hold-duration]').forEach((peer) => { if (peer !== input) peer.value = config.choiceHoldDurationMs; });
     tabEditor.querySelector('[data-hold-seconds]').textContent = seconds(config.choiceHoldDurationMs);
+    scheduleLivePreview();
+    return;
+  }
+  if (input.dataset.bgmField) {
+    const bgm = bgmForScope(input.dataset.bgmScope);
+    if (!bgm) return;
+    const key = input.dataset.bgmField;
+    const numeric = ['volume', 'fadeMs'].includes(key);
+    const value = input.type === 'checkbox'
+      ? input.checked
+      : numeric
+        ? Math.max(0, Number(input.value) || 0)
+        : input.value;
+    bgm[key] = value;
+    if (numeric) {
+      tabEditor.querySelectorAll(
+        `[data-bgm-scope="${input.dataset.bgmScope}"][data-bgm-field="${key}"]`,
+      ).forEach((peer) => { if (peer !== input) peer.value = String(value); });
+    }
     scheduleLivePreview();
     return;
   }
@@ -1264,31 +1333,38 @@ tabEditor.addEventListener('click', (event) => {
 
 tabEditor.addEventListener('change', (event) => {
   const input = event.target;
-  if (input.dataset.sceneAudioUpload) {
-    const scene = activeSequence()[Number(input.dataset.transitionIndex)];
+  if (input.dataset.audioUpload) {
+    const scene = input.dataset.audioSoundField
+      ? activeSequence()[Number(input.dataset.transitionIndex)]
+      : null;
+    const bgm = input.dataset.audioBgmField ? bgmForScope(input.dataset.audioBgmScope) : null;
     const file = input.files?.[0];
     const validFile = file && (
       file.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)$/i.test(file.name)
     );
-    if (!scene || !validFile) {
+    if ((!scene && !bgm) || !validFile) {
       announce('対応する音声ファイルを選択してください。', true);
       return;
     }
     const key = createUniqueAssetKey('audio', file.name);
-    const [group, field] = input.dataset.audioTargetField.split('.');
     fileAsDataUrl(file).then((src) => {
       config.customAssets.audio[key] = {
         kind: input.dataset.audioKind === 'bgm' ? 'bgm' : 'se',
         fileName: file.name,
         src,
       };
-      scene.soundAsset[group][field] = key;
+      if (bgm) {
+        bgm[input.dataset.audioBgmField] = key;
+      } else {
+        const [group, field] = input.dataset.audioSoundField.split('.');
+        scene.soundAsset[group][field] = key;
+      }
       renderEditor();
       scheduleLivePreview();
       announce(
         file.size > 2_500_000
           ? `${file.name}を登録・設定しました。容量が大きいため、保存にはJSON Exportを推奨します。`
-          : `${file.name}を登録し、この画面イベントへ設定しました。`,
+          : `${file.name}を登録し、${bgm ? 'BGM' : 'この画面イベント'}へ設定しました。`,
       );
     }).catch((error) => announce(`音声ファイルを読み込めませんでした: ${error.message}`, true));
     return;

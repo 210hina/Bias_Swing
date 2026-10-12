@@ -92,10 +92,11 @@ python3 -m http.server 8000
 「アセット管理」タブから画像または音声ファイルを登録できます。管理画面上ではすべてファイル名で表示され、内部参照IDは自動生成されます。
 
 - 画像: 背景または人物イラストとして再利用
-- BGM: 画面開始時に再生し、ループ、音量、フェードを設定
+- マスターBGM: イントロから結果まで体験全体を通して再生
+- シーンBGM: イントロ、各設問シーン、結果・サマリーの単位で継続再生
 - SE: 画面開始時または選択確定時に再生
 
-各画面イベントの「開始時BGM」「開始時SE」「選択・アクション時SE」から直接ローカル音源を選ぶこともできます。ここから追加した音源も自動的にアセット管理へ登録され、ほかの画面イベントで再利用できます。
+マスターBGMは「イントロダクション」タブ、シーンBGMは各タブ、SEは各画面イベントから設定します。それぞれの欄からローカル音源を直接追加でき、登録後はほかの設定でも再利用できます。
 
 登録ファイルはBase64 Data URLとして設定内に保持され、JSON Exportにも含まれます。大きな画像や音声を多数登録するとLocal Storageの容量上限を超える可能性があるため、その場合はJSON Exportを利用してください。
 
@@ -150,26 +151,29 @@ rocking-train-config-v1
 
 ## 設定データ
 
-現在の設定スキーマはVersion 6です。編集用設定は大きく次の構造を持ちます。
+現在の設定スキーマはVersion 7です。編集用設定は大きく次の構造を持ちます。
 
 ```js
 {
-  schemaVersion: 6,
+  schemaVersion: 7,
   customAssets: {
     images: {},
     audio: {}
   },
+  masterBgm: {},
   choiceHoldDurationMs: 2000,
-  introduction: { sequence: [] },
+  introduction: { bgm: {}, sequence: [] },
   questionScenes: [
     {
       id: 'question_scene_01',
       label: 'シーン 1',
+      bgm: {},
       sequence: [],
       questionSet: { stages: [] }
     }
   ],
   result: {
+    bgm: {},
     sequence: [],
     diagnosis: {}
   }

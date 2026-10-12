@@ -1,6 +1,6 @@
 import { CONTENT } from './content.js';
 
-export const CONFIG_SCHEMA_VERSION = 6;
+export const CONFIG_SCHEMA_VERSION = 7;
 export const CONFIG_STORAGE_KEY = 'rocking-train-config-v1';
 export const PREVIEW_CONFIG_KEY = 'rocking-train-preview-config-v1';
 
@@ -14,9 +14,12 @@ function clone(value) {
 
 function defaultSoundAsset() {
   return {
-    bgm: { assetKey: '', loop: true, volume: 70, fadeMs: 800 },
     se: { startAssetKey: '', actionAssetKey: '', volume: 80 },
   };
+}
+
+function defaultBgmAsset() {
+  return { assetKey: '', loop: true, volume: 70, fadeMs: 800 };
 }
 
 function timedScene(
@@ -84,8 +87,10 @@ export const DEFAULT_APP_CONFIG = Object.freeze({
     images: Object.freeze({}),
     audio: Object.freeze({}),
   }),
+  masterBgm: Object.freeze(defaultBgmAsset()),
   choiceHoldDurationMs: 2000,
   introduction: Object.freeze({
+    bgm: Object.freeze(defaultBgmAsset()),
     sequence: Object.freeze([
       timedScene('SESSION_START', '開始表示', 400, 'train_far_full', CONTENT.scenes.sessionStart.title, CONTENT.scenes.sessionStart.message),
       timedScene('SCENE_INTRO_FULL', '導入：混雑した車内', 2000, 'train_far_full', CONTENT.scenes.intro.fullTitle, CONTENT.scenes.intro.fullMessage),
@@ -96,6 +101,7 @@ export const DEFAULT_APP_CONFIG = Object.freeze({
     Object.freeze({
       id: 'question_scene_01',
       label: 'シーン 1',
+      bgm: Object.freeze(defaultBgmAsset()),
       questionSet: Object.freeze(clone(DEFAULT_QUESTION_SET)),
       sequence: Object.freeze([
         timedScene('SCENE_1_STAGE_1_INPUT', 'Stage 1：文字のみ', 12000, 'train_close_full', '', CONTENT.scenes.stage.inputHint, 'stage_input'),
@@ -104,6 +110,7 @@ export const DEFAULT_APP_CONFIG = Object.freeze({
     }),
   ]),
   result: Object.freeze({
+    bgm: Object.freeze(defaultBgmAsset()),
     sequence: Object.freeze([
       timedScene('SESSION_SUMMARY', '総合結果', 4000, 'train_far_empty', CONTENT.scenes.summary.title, '', 'summary', true),
       timedScene('SESSION_END', '終了表示', 4000, 'train_far_empty', CONTENT.scenes.end.title, CONTENT.scenes.end.message, 'end'),
@@ -205,11 +212,7 @@ function normalizeSceneItem(scene, fallback, index, usedIds) {
   usedIds.add(id);
   const sound = scene?.soundAsset ?? {};
   const fallbackSound = fallback?.soundAsset ?? defaultSoundAsset();
-  const sourceBgm = typeof sound.bgm === 'string' ? { assetKey: sound.bgm } : sound.bgm ?? {};
   const sourceSe = typeof sound.se === 'string' ? { startAssetKey: sound.se } : sound.se ?? {};
-  const fallbackBgm = typeof fallbackSound.bgm === 'string'
-    ? { assetKey: fallbackSound.bgm }
-    : fallbackSound.bgm ?? {};
   const fallbackSe = typeof fallbackSound.se === 'string'
     ? { startAssetKey: fallbackSound.se }
     : fallbackSound.se ?? {};
@@ -237,12 +240,6 @@ function normalizeSceneItem(scene, fallback, index, usedIds) {
     title: String(scene?.title ?? ''),
     message,
     soundAsset: {
-      bgm: {
-        assetKey: String(sourceBgm.assetKey ?? ''),
-        loop: sourceBgm.loop === undefined ? fallbackBgm.loop !== false : Boolean(sourceBgm.loop),
-        volume: finiteMilliseconds(sourceBgm.volume, fallbackBgm.volume ?? 70, 0, 100),
-        fadeMs: finiteMilliseconds(sourceBgm.fadeMs, fallbackBgm.fadeMs ?? 800, 0, 30000),
-      },
       se: {
         startAssetKey: String(sourceSe.startAssetKey ?? ''),
         actionAssetKey: String(sourceSe.actionAssetKey ?? ''),
@@ -250,6 +247,21 @@ function normalizeSceneItem(scene, fallback, index, usedIds) {
       },
     },
   };
+}
+
+function normalizeBgm(source, fallback = defaultBgmAsset()) {
+  const candidate = typeof source === 'string' ? { assetKey: source } : source ?? {};
+  return {
+    assetKey: String(candidate.assetKey ?? fallback.assetKey ?? ''),
+    loop: candidate.loop === undefined ? fallback.loop !== false : Boolean(candidate.loop),
+    volume: finiteMilliseconds(candidate.volume, fallback.volume ?? 70, 0, 100),
+    fadeMs: finiteMilliseconds(candidate.fadeMs, fallback.fadeMs ?? 800, 0, 30000),
+  };
+}
+
+function legacySequenceBgm(group) {
+  return group?.sequence?.map((scene) => scene?.soundAsset?.bgm)
+    .find((bgm) => typeof bgm === 'string' ? bgm : bgm?.assetKey) ?? null;
 }
 
 function normalizeSequence(source, fallback, usedIds) {
@@ -407,6 +419,10 @@ export function normalizeAppConfig(candidate = {}) {
     return {
       id,
       label: String(questionScene?.label ?? '').trim() || `シーン ${index + 1}`,
+      bgm: normalizeBgm(
+        questionScene?.bgm ?? legacySequenceBgm(questionScene),
+        fallback.bgm ?? defaultBgmAsset(),
+      ),
       questionSet,
       sequence: normalizeSequence(questionScene?.sequence, fallback.sequence, usedSceneIds),
     };
@@ -414,12 +430,21 @@ export function normalizeAppConfig(candidate = {}) {
   return {
     schemaVersion: CONFIG_SCHEMA_VERSION,
     customAssets: normalizeCustomAssets(source?.customAssets),
+    masterBgm: normalizeBgm(source?.masterBgm, defaults.masterBgm),
     choiceHoldDurationMs: finiteMilliseconds(source?.choiceHoldDurationMs, defaults.choiceHoldDurationMs, 100, 30000),
     introduction: {
+      bgm: normalizeBgm(
+        source?.introduction?.bgm ?? legacySequenceBgm(source?.introduction),
+        defaults.introduction.bgm,
+      ),
       sequence: normalizeSequence(source?.introduction?.sequence, defaults.introduction.sequence, usedSceneIds),
     },
     questionScenes,
     result: {
+      bgm: normalizeBgm(
+        source?.result?.bgm ?? legacySequenceBgm(source?.result),
+        defaults.result.bgm,
+      ),
       sequence: normalizeSequence(source?.result?.sequence, defaults.result.sequence, usedSceneIds),
       diagnosis: normalizeDiagnosis(source?.result?.diagnosis),
     },
@@ -429,12 +454,18 @@ export function normalizeAppConfig(candidate = {}) {
 /** Convert grouped editor data into the flat shape consumed by SceneManager. */
 export function buildRuntimeConfig(config) {
   const normalized = normalizeAppConfig(config);
+  const withGroupBgm = (sequence, groupBgm, audioGroupId) => sequence.map((scene) => ({
+    ...scene,
+    groupBgm,
+    audioGroupId,
+  }));
   return {
     sceneSequence: [
-      ...normalized.introduction.sequence,
-      ...normalized.questionScenes.flatMap((scene) => scene.sequence),
-      ...normalized.result.sequence,
+      ...withGroupBgm(normalized.introduction.sequence, normalized.introduction.bgm, 'introduction'),
+      ...normalized.questionScenes.flatMap((scene) => withGroupBgm(scene.sequence, scene.bgm, scene.id)),
+      ...withGroupBgm(normalized.result.sequence, normalized.result.bgm, 'result'),
     ],
+    masterBgm: normalized.masterBgm,
     questionSets: normalized.questionScenes.map((scene) => scene.questionSet),
     choiceHoldDurationMs: normalized.choiceHoldDurationMs,
     diagnosis: normalized.result.diagnosis,

@@ -222,6 +222,9 @@ export class AudioManager {
     this.muted = false;
     this.currentBgm = null;
     this.currentBgmKey = '';
+    this.masterBgm = null;
+    this.masterBgmKey = '';
+    this.pendingMasterBgm = null;
     this.pendingSound = null;
     this.activeAudio = new Set();
     this.targetVolumes = new Map();
@@ -252,7 +255,10 @@ export class AudioManager {
     this.unlocked = true;
     this.unlockTarget?.removeEventListener?.('pointerdown', this.handleUnlock, { capture: true });
     this.unlockTarget?.removeEventListener?.('keydown', this.handleUnlock, { capture: true });
-    if (this.pendingSound) this.enterScene(this.pendingSound);
+    if (this.pendingMasterBgm) this.transitionBgm(this.pendingMasterBgm, 'master');
+    if (this.pendingSound) {
+      this.enterScene(this.pendingSound.soundAsset, this.pendingSound.groupBgm);
+    }
   }
 
   safePlay(audio) {
@@ -308,22 +314,24 @@ export class AudioManager {
     this.targetVolumes.delete(audio);
   }
 
-  transitionBgm(settings = {}) {
+  transitionBgm(settings = {}, channel = 'scene') {
+    const audioProperty = channel === 'master' ? 'masterBgm' : 'currentBgm';
+    const keyProperty = channel === 'master' ? 'masterBgmKey' : 'currentBgmKey';
     const assetKey = String(settings.assetKey ?? '');
     const asset = this.manifest[assetKey];
     const fadeMs = Math.max(0, Number(settings.fadeMs) || 0);
     const targetVolume = Math.min(1, Math.max(0, Number(settings.volume ?? 70) / 100));
     if (assetKey && asset?.kind !== 'bgm') return;
 
-    if (assetKey && assetKey === this.currentBgmKey && this.currentBgm) {
-      this.currentBgm.loop = settings.loop ?? asset.loop ?? true;
-      this.fade(this.currentBgm, this.targetVolumes.get(this.currentBgm) ?? 0, targetVolume, fadeMs);
+    if (assetKey && assetKey === this[keyProperty] && this[audioProperty]) {
+      this[audioProperty].loop = settings.loop ?? asset.loop ?? true;
+      this.fade(this[audioProperty], this.targetVolumes.get(this[audioProperty]) ?? 0, targetVolume, fadeMs);
       return;
     }
 
-    const previous = this.currentBgm;
-    this.currentBgm = null;
-    this.currentBgmKey = '';
+    const previous = this[audioProperty];
+    this[audioProperty] = null;
+    this[keyProperty] = '';
     if (previous) {
       const previousVolume = this.targetVolumes.get(previous) ?? previous.volume ?? 0;
       this.fade(previous, previousVolume, 0, fadeMs, () => this.stopAudio(previous));
@@ -333,8 +341,8 @@ export class AudioManager {
     const next = this.createAudio(assetKey);
     if (!next) return;
     next.loop = settings.loop ?? asset.loop ?? true;
-    this.currentBgm = next;
-    this.currentBgmKey = assetKey;
+    this[audioProperty] = next;
+    this[keyProperty] = assetKey;
     this.setAudioVolume(next, 0);
     this.safePlay(next);
     this.fade(next, 0, targetVolume, fadeMs);
@@ -352,18 +360,22 @@ export class AudioManager {
     this.safePlay(audio);
   }
 
-  enterScene(soundAsset = null) {
-    this.pendingSound = soundAsset;
+  setMasterBgm(settings = null) {
+    this.pendingMasterBgm = settings;
+    if (this.unlocked) this.transitionBgm(settings ?? {}, 'master');
+  }
+
+  enterScene(soundAsset = null, groupBgm = null) {
+    this.pendingSound = { soundAsset, groupBgm };
     if (!this.unlocked) return;
     const sound = soundAsset ?? {
-      bgm: { assetKey: '', volume: 70, fadeMs: 800, loop: true },
       se: { startAssetKey: '', actionAssetKey: '', volume: 80 },
     };
-    this.transitionBgm(sound.bgm);
+    this.transitionBgm(groupBgm ?? {});
     this.playSe(sound.se?.startAssetKey, sound.se?.volume);
   }
 
-  playActionSe(soundAsset = this.pendingSound) {
+  playActionSe(soundAsset = this.pendingSound?.soundAsset) {
     this.playSe(soundAsset?.se?.actionAssetKey, soundAsset?.se?.volume);
   }
 
@@ -382,6 +394,8 @@ export class AudioManager {
     [...this.activeAudio].forEach((audio) => this.stopAudio(audio));
     this.currentBgm = null;
     this.currentBgmKey = '';
+    this.masterBgm = null;
+    this.masterBgmKey = '';
   }
 }
 
@@ -1260,6 +1274,7 @@ export class SceneManager {
    * @param {Partial<typeof DEFAULT_SCENE_DURATIONS>} [options.durations]
    * @param {readonly Object[]} [options.sceneSequence]
    * @param {number} [options.choiceHoldDurationMs]
+   * @param {Object} [options.masterBgm]
    * @param {typeof CONTENT.diagnosis} [options.diagnosis]
    * @param {() => number} [options.random]
    * @param {Choice} [options.defaultChoice]
@@ -1274,6 +1289,7 @@ export class SceneManager {
     stages,
     durations = {},
     sceneSequence = DEFAULT_SCENE_SEQUENCE,
+    masterBgm = null,
     choiceHoldDurationMs = CHOICE_HOLD_DURATION_MS,
     diagnosis = CONTENT.diagnosis,
     defaultChoice = 'self',
@@ -1352,6 +1368,7 @@ export class SceneManager {
       manifest: this.audioManifest,
     });
     this.audioManager.setMuted(audioMuted);
+    this.audioManager.setMasterBgm?.(masterBgm);
     this.backgroundPreloadCache = new Map();
     this.backgroundRequestId = 0;
     this.requestedBackgroundKey = null;
@@ -1695,7 +1712,7 @@ export class SceneManager {
     }
 
     this.state = scene.id;
-    this.audioManager.enterScene(scene.soundAsset);
+    this.audioManager.enterScene(scene.soundAsset, scene.groupBgm);
     void this.syncBackgroundForState();
     this.render();
     this.notifySnapshot();

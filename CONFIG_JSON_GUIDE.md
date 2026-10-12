@@ -161,8 +161,9 @@ config-store.js
 
 ```js
 export const DEFAULT_APP_CONFIG = {
-  schemaVersion: 6,
+  schemaVersion: 7,
   customAssets: { images: {}, audio: {} },
+  masterBgm: {/* 体験全体のBGM */},
   choiceHoldDurationMs: 2000,
   introduction: { sequence: [/* 導入画面 */] },
   questionScenes: [
@@ -183,19 +184,29 @@ ExportしたJSONの以下の項目を、`DEFAULT_APP_CONFIG`の対応箇所へ�
 
 - `choiceHoldDurationMs`
 - `customAssets`
+- `masterBgm`
 - `introduction`
 - `questionScenes`
 - `result`
 
 これは開発者向けの恒久変更です。通常の演出調整では、管理画面のImportと「ブラウザに保存」を使用してください。
 
-各画面イベントの音響設定は`sequence`内の次の形式で保存されます。
+画面イベント単位の効果音は`sequence`内、BGMはタブ／シーン単位、マスターBGMは設定の最上位に保存されます。
 
 ```json
 {
   "soundAsset": {
-    "bgm": { "assetKey": "uploaded_bgm", "loop": true, "volume": 70, "fadeMs": 800 },
     "se": { "startAssetKey": "", "actionAssetKey": "uploaded_se", "volume": 80 }
+  }
+}
+```
+
+```json
+{
+  "masterBgm": { "assetKey": "master_music", "loop": true, "volume": 50, "fadeMs": 800 },
+  "introduction": {
+    "bgm": { "assetKey": "intro_ambience", "loop": true, "volume": 70, "fadeMs": 800 },
+    "sequence": []
   }
 }
 ```
